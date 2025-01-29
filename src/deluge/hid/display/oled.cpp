@@ -58,7 +58,6 @@ bool OLED::needsSending;
 int32_t working_animation_count;
 bool started_animation;
 bool loading;
-// char const* workingAnimationText; // NULL means animation not active
 
 int32_t sideScrollerDirection; // 0 means none active
 
@@ -1032,14 +1031,12 @@ void OLED::stopScrollingAnimation() {
 void OLED::timerRoutine() {
 
 	if (working_animation_count) {
-		// working_animation_count = (working_animation_count + 1) & 1;
 		working_animation_count++;
 		updateWorkingAnimation();
 		markChanged();
 	}
-	// if(workingAnimationText) return;
 	else {
-		removePopup();
+		removePopup(); // for the regular display popups
 	}
 }
 

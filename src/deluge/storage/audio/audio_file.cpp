@@ -16,6 +16,7 @@
  */
 
 #include "storage/audio/audio_file.h"
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "definitions_cxx.hpp"
 #include "hid/display/display.h"
 #include "io/debug/log.h"
@@ -213,7 +214,9 @@ doSetupWaveTable:
 
 						// Go through loops
 						for (int32_t l = 0; l < numLoops; l++) {
+#if AUDIO_FILE_DEBUG_MESSAGES
 							D_PRINTLN("loop  %d", l);
+#endif
 
 							uint32_t loopData[6];
 							error = reader->readBytes((char*)loopData, 4 * 6);
@@ -221,13 +224,19 @@ doSetupWaveTable:
 								goto finishedWhileLoop;
 							}
 
+#if AUDIO_FILE_DEBUG_MESSAGES
 							D_PRINTLN("start:  %d", loopData[2]);
+#endif
 							((Sample*)this)->fileLoopStartSamples = loopData[2];
 
+#if AUDIO_FILE_DEBUG_MESSAGES
 							D_PRINTLN("end:  %d", loopData[3]);
+#endif
 							((Sample*)this)->fileLoopEndSamples = loopData[3];
 
+#if AUDIO_FILE_DEBUG_MESSAGES
 							D_PRINTLN("play count:  %d", loopData[5]);
+#endif
 						}
 					}
 				}
@@ -269,7 +278,7 @@ doSetupWaveTable:
 
 					if (number >= 1) {
 						waveTableCycleSize = number;
-						D_PRINTLN("clm tag num samples per cycle:  %d", waveTableCycleSize);
+						// D_PRINTLN("clm tag num samples per cycle:  %d", waveTableCycleSize);
 					}
 				}
 

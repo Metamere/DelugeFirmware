@@ -16,6 +16,7 @@
  */
 
 #include "util/d_string.h"
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "definitions_cxx.hpp"
 #include "memory/general_memory_allocator.h"
 #include "util/cfunctions.h"
@@ -134,7 +135,7 @@ doCopy:
 void String::set(String const* otherString) {
 	char* sm = otherString->stringMemory;
 	if (sm && sm == stringMemory) {
-		D_PRINTLN("setting string to itself");
+		// D_PRINTLN("setting string to itself");
 		return;
 	}
 #if ALPHA_OR_BETA_VERSION

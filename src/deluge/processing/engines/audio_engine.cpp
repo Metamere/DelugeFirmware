@@ -16,6 +16,7 @@
  */
 
 #include "processing/engines/audio_engine.h"
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "definitions.h"
 #include "definitions_cxx.hpp"
 #include "dsp/reverb/reverb.hpp"
@@ -434,7 +435,7 @@ inline void cullVoices(size_t numSamples, int32_t numAudio, int32_t numVoice) {
 		int32_t numSamplesOverLimit = numSamples - numSamplesLimit;
 		// Cull anyway if things are bad
 		if (numSamplesOverLimit >= 40) {
-			D_PRINTLN("under min voices but culling anyway");
+			// D_PRINTLN("under min voices but culling anyway");
 			terminateOneVoice(numSamples);
 			culled = true;
 		}
@@ -492,7 +493,9 @@ inline void setDireness(size_t numSamples) { // Consider direness and culling - 
 				cpuDireness = 0;
 			}
 			else {
+#if AUDIO_ENGINE_DETAILED_STATS
 				D_PRINTLN("direness:  %d", cpuDireness);
+#endif
 			}
 		}
 	}

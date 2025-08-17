@@ -16,6 +16,7 @@
  */
 
 #include "gui/ui/load/load_instrument_preset_ui.h"
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "definitions_cxx.hpp"
 #include "extern.h"
 #include "gui/context_menu/load_instrument_preset.h"
@@ -1517,7 +1518,9 @@ moveAgain:
 			if (numFileItemsDeletedAtEnd) {
 searchFromOneEnd:
 				oldNameString.clear();
+#if UI_NAVIGATION_DEBUG_MESSAGES
 				D_PRINTLN("reloading and wrap");
+#endif
 				goto readAgain;
 			}
 			else {
@@ -1576,7 +1579,9 @@ doneMoving:
 	}
 
 	if (encoders::getEncoder(EncoderName::SELECT).detentPos) {
+#if UI_NAVIGATION_DEBUG_MESSAGES
 		D_PRINTLN("go again 1 --------------------------");
+#endif
 
 doPendingPresetNavigation:
 		offset = encoders::getEncoder(EncoderName::SELECT).getLimitedDetentPosAndReset();
@@ -1604,7 +1609,9 @@ doPendingPresetNavigation:
 		toReturn.loadedFromFile = true;
 
 		if (encoders::getEncoder(EncoderName::SELECT).detentPos) {
+#if UI_NAVIGATION_DEBUG_MESSAGES
 			D_PRINTLN("go again 2 --------------------------");
+#endif
 			goto doPendingPresetNavigation;
 		}
 	}
@@ -1619,7 +1626,9 @@ doPendingPresetNavigation:
 
 	// If user wants to move on...
 	if (encoders::getEncoder(EncoderName::SELECT).detentPos) {
+#if UI_NAVIGATION_DEBUG_MESSAGES
 		D_PRINTLN("go again 3 --------------------------");
+#endif
 		goto doPendingPresetNavigation;
 	}
 

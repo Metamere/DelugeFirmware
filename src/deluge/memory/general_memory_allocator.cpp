@@ -17,6 +17,7 @@
 
 #include "memory/general_memory_allocator.h"
 
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "definitions_cxx.hpp"
 #include "io/debug/log.h"
 #include "memory/stealable.h"
@@ -89,8 +90,10 @@ void GeneralMemoryAllocator::checkStack(char const* caller) {
 	if (distance < closestDistance) {
 		closestDistance = distance;
 
+#if MEMORY_DETAILED_STATS
 		D_PRINTLN("%d bytes in stack %d free bytes in stack at %s", (uint32_t)&program_stack_end - (int32_t)&a,
 		          distance, caller);
+#endif
 		if (distance < 200) {
 			FREEZE_WITH_ERROR("E338");
 			D_PRINTLN("COLLISION");

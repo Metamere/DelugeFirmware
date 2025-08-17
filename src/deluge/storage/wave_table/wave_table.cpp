@@ -17,6 +17,7 @@
 
 #include "storage/wave_table/wave_table.h"
 #include "NE10.h"
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "arm_neon_shim.h"
 #include "definitions_cxx.hpp"
 #include "dsp/fft/fft_config_manager.h"
@@ -529,7 +530,9 @@ gotError5:
 		AudioEngine::logAction("analyzing cycle");
 
 		// Ok, we've finished reading one wave cycle (which potentially spanned multiple file clusters).
+#if WAVETABLE_DETAILED_STATS
 		D_PRINTLN("\nCycle:  %d", cycleIndex);
+#endif
 
 		// If it wasn't a power-of-two size, we have to do a DFT even just to get the first band's useable time-domain
 		// data.
@@ -734,7 +737,9 @@ transformBandToTimeDomain:
 	AudioEngine::routineWithClusterLoading();
 	AudioEngine::logAction("finalizing wavetable");
 
+#if WAVE_TABLE_DETAILED_STATS
 	D_PRINTLN("initial num bands:  %d", bands.getNumElements());
+#endif
 
 	// Ok, we've now processed all Cycles.
 
@@ -757,18 +762,22 @@ transformBandToTimeDomain:
 	delugeDealloc(frequencyDomainData);
 
 	// Printout stats
+#if WAVETABLE_DETAILED_STATS
 	D_PRINTLN("initial band size if all populated: %d",
 	          numCycles * (initialBand->cycleSizeNoDuplicates + WAVETABLE_NUM_DUPLICATE_SAMPLES_AT_END_OF_CYCLE) * 2);
 	D_PRINTLN("initial band size after trimming: %d",
 	          (initialBand->toCycleNumber - initialBand->fromCycleNumber)
 	              * (initialBand->cycleSizeNoDuplicates + WAVETABLE_NUM_DUPLICATE_SAMPLES_AT_END_OF_CYCLE) * 2);
+#endif
 	int32_t total = 0;
 	for (int32_t b = 1; b < bands.getNumElements(); b++) {
 		WaveTableBand* band = (WaveTableBand*)bands.getElementAddress(b);
 		total += (band->toCycleNumber - band->fromCycleNumber)
 		         * (band->cycleSizeNoDuplicates + WAVETABLE_NUM_DUPLICATE_SAMPLES_AT_END_OF_CYCLE) * 2;
 	}
+#if WAVETABLE_DETAILED_STATS
 	D_PRINTLN("other bands total size after trimming:  %d", total);
+#endif
 
 	// Dispose of bands that didn't end up getting used, or such portions of their memory.
 	for (int32_t b = bands.getNumElements() - 1; b >= 0; b--) { // Traverse backwards because we might delete elements.

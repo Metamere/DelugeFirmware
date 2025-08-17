@@ -21,7 +21,16 @@
 #include "resource_checker.h"
 
 #include <io/debug/log.h>
-#define SCHEDULER_DETAILED_STATS (1 && ENABLE_TEXT_OUTPUT)
+
+// Debug flags for various subsystems - set to 1 to enable debug output
+#define SCHEDULER_DETAILED_STATS (0 && ENABLE_TEXT_OUTPUT)
+#define SCHEDULER_PERFORMANCE_WARNINGS (0 && ENABLE_TEXT_OUTPUT)
+#define LOADING_DEBUG_MESSAGES (0 && ENABLE_TEXT_OUTPUT)
+#define AUDIO_ENGINE_DETAILED_STATS (0 && ENABLE_TEXT_OUTPUT)
+#define AUDIO_FILE_DEBUG_MESSAGES (0 && ENABLE_TEXT_OUTPUT)
+#define UI_NAVIGATION_DEBUG_MESSAGES (0 && ENABLE_TEXT_OUTPUT)
+#define WAVE_TABLE_DETAILED_STATS (0 && ENABLE_TEXT_OUTPUT)
+#define MEMORY_DETAILED_STATS (0 && ENABLE_TEXT_OUTPUT)
 
 // internal to the scheduler - do not include from anywhere else
 struct StatBlock {
@@ -88,9 +97,11 @@ struct Task {
 	}
 
 	void updateNextTimes(Time startTime, Time runtime, Time finishTime) {
+#if SCHEDULER_PERFORMANCE_WARNINGS
 		if (runtime > Time(0.003)) {
 			D_PRINTLN("Task %s took too long: %.3fms", name, double(runtime) * 1000.);
 		}
+#endif
 		durationStats.update(runtime);
 
 #if SCHEDULER_DETAILED_STATS

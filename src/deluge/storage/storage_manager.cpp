@@ -16,6 +16,7 @@
  */
 
 #include "storage/storage_manager.h"
+#include "OSLikeStuff/task_scheduler/task.h"
 #include "definitions_cxx.hpp"
 #include "drivers/pic/pic.h"
 #include "fatfs/fatfs.hpp"
@@ -86,7 +87,9 @@ extern void songLoaded(Song* song);
 FatFS::Filesystem fileSystem;
 
 Error StorageManager::checkSpaceOnCard() {
+#if LOADING_DEBUG_MESSAGES
 	D_PRINTLN("free clusters:  %d", fileSystem.free_clst);
+#endif
 	return fileSystem.free_clst ? Error::NONE : Error::SD_CARD_FULL; // This doesn't seem to always be 100% accurate...
 }
 
@@ -283,7 +286,9 @@ void StorageManager::openFilePointer(FilePointer* fp, FileReader& reader) {
 
 	AudioEngine::logAction("openFilePointer");
 
+#if LOADING_DEBUG_MESSAGES
 	D_PRINTLN("openFilePointer");
+#endif
 
 	reader.readFIL.obj.sclust = fp->sclust;
 	reader.readFIL.obj.objsize = fp->objsize;
@@ -327,12 +332,16 @@ Error StorageManager::loadInstrumentFromFile(Song* song, InstrumentClip* clip, O
                                              FilePointer* filePointer, String* name, String* dirPath) {
 
 	AudioEngine::logAction("loadInstrumentFromFile");
+#if LOADING_DEBUG_MESSAGES
 	D_PRINTLN("opening instrument file -  %s %s  from FP  %lu", dirPath->get(), name->get(),
 	          (int32_t)filePointer->sclust);
+#endif
 
 	Error error = openInstrumentFile(outputType, filePointer);
 	if (error != Error::NONE) {
+#if LOADING_DEBUG_MESSAGES
 		D_PRINTLN("opening instrument file failed -  %s", name->get());
+#endif
 		return error;
 	}
 
@@ -341,7 +350,9 @@ Error StorageManager::loadInstrumentFromFile(Song* song, InstrumentClip* clip, O
 
 	if (!newInstrument) {
 		smDeserializer.closeWriter();
+#if LOADING_DEBUG_MESSAGES
 		D_PRINTLN("Allocating instrument file failed -  %d", name->get());
+#endif
 		return Error::INSUFFICIENT_RAM;
 	}
 
@@ -351,13 +362,17 @@ Error StorageManager::loadInstrumentFromFile(Song* song, InstrumentClip* clip, O
 
 	// If that somehow didn't work...
 	if (error != Error::NONE || fileSuccess != FR_OK) {
+#if LOADING_DEBUG_MESSAGES
 		D_PRINTLN("reading instrument file failed -  %s", name->get());
+#endif
 		if (!fileSuccess) {
 			error = Error::SD_CARD;
 		}
 
 deleteInstrumentAndGetOut:
+#if LOADING_DEBUG_MESSAGES
 		D_PRINTLN("abandoning load -  %s", name->get());
+#endif
 		newInstrument->deleteBackedUpParamManagers(song);
 		void* toDealloc = static_cast<void*>(newInstrument);
 		newInstrument->~Instrument();
@@ -388,7 +403,9 @@ deleteInstrumentAndGetOut:
 		}
 		else {
 paramManagersMissing:
+#if LOADING_DEBUG_MESSAGES
 			D_PRINTLN("creating param manager failed -  %s", name->get());
+#endif
 			error = Error::FILE_CORRUPTED;
 			goto deleteInstrumentAndGetOut;
 		}
@@ -437,12 +454,16 @@ Error StorageManager::loadMidiDeviceDefinitionFile(MIDIInstrument* midiInstrumen
 	midiInstrument->loadDeviceDefinitionFile = false;
 
 	AudioEngine::logAction("loadMidiDeviceDefinitionFile");
+#if LOADING_DEBUG_MESSAGES
 	D_PRINTLN("opening midi device definition file -  %s %s  from FP  %lu", fileName->get(),
 	          (int32_t)filePointer->sclust);
+#endif
 
 	Error error = openMidiDeviceDefinitionFile(filePointer);
 	if (error != Error::NONE) {
+#if LOADING_DEBUG_MESSAGES
 		D_PRINTLN("opening midi device definition file failed -  %s", fileName->get());
+#endif
 		return error;
 	}
 
@@ -454,7 +475,9 @@ Error StorageManager::loadMidiDeviceDefinitionFile(MIDIInstrument* midiInstrumen
 
 	// If that somehow didn't work...
 	if (error != Error::NONE || fileSuccess != FR_OK) {
+#if LOADING_DEBUG_MESSAGES
 		D_PRINTLN("reading midi device definition file failed -  %s", fileName->get());
+#endif
 		if (!fileSuccess) {
 			error = Error::SD_CARD;
 		}

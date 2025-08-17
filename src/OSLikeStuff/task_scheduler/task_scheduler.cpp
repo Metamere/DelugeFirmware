@@ -354,7 +354,9 @@ void TaskManager::resetStats() {
 }
 
 void TaskManager::printStats() {
+#if SCHEDULER_DETAILED_STATS
 	D_PRINTLN("Dumping task manager stats: (min/ average/ max)");
+#endif
 	for (auto task : list) {
 		if (task.handle) {
 			constexpr float latencyScale = 1000.0;
@@ -384,9 +386,11 @@ void TaskManager::printStats() {
 		}
 	}
 	auto totalTime = cpuTime + overhead;
+#if SCHEDULER_DETAILED_STATS
 	D_PRINTLN("Working time: %5.2f, Overhead: %5.2f. Total running time: %5.2f seconds",
 	          double(cpuTime * 100) / double(totalTime), double(overhead * 100) / double(totalTime),
 	          double(runningTime));
+#endif
 	resetStats();
 }
 Time getTimerValueSeconds(int timerNo) {

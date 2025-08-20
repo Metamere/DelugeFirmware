@@ -5,6 +5,8 @@
 #include "gui/l10n/strings.h"
 #include "gui/menu_item/dx/param.h"
 #include "gui/menu_item/file_selector.h"
+#include "gui/menu_item/horizontal_menu.h"
+#include "gui/menu_item/horizontal_menu_group.h"
 #include "gui/menu_item/menu_item.h"
 #include "gui/menu_item/mpe/zone_num_member_channels.h"
 #include "gui/menu_item/multi_range.h"
@@ -30,8 +32,8 @@
 #include "io/debug/log.h"
 #include "io/midi/midi_device.h"
 #include "io/midi/midi_engine.h"
-#include "mem_functions.h"
 #include "memory/general_memory_allocator.h"
+#include "menus.h"
 #include "model/action/action_logger.h"
 #include "model/clip/audio_clip.h"
 #include "model/clip/instrument_clip.h"
@@ -42,19 +44,13 @@
 #include "model/note/note_row.h"
 #include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
-#include "modulation/params/param_set.h"
-#include "modulation/patch/patch_cable_set.h"
-#include "playback/mode/playback_mode.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
 #include "processing/source.h"
 #include "storage/flash_storage.h"
 #include "storage/multi_range/multisample_range.h"
-#include "storage/storage_manager.h"
-#include "util/functions.h"
-
-#include "menus.h"
+#include "util/comparison.h"
 
 using namespace deluge;
 using namespace deluge::gui;
@@ -86,6 +82,29 @@ PatchSource modSourceShortcuts[2][8] = {
     },
 };
 
+PatchSource modSourceShortcutsSecondLayer[2][8] = {
+    {
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::LFO_GLOBAL_2,
+        PatchSource::ENVELOPE_2,
+        PatchSource::NOT_AVAILABLE,
+    },
+    {
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::NOT_AVAILABLE,
+        PatchSource::LFO_LOCAL_2,
+        PatchSource::ENVELOPE_3,
+        PatchSource::NOT_AVAILABLE,
+    },
+};
+
 void SoundEditor::setShortcutsVersion(int32_t newVersion) {
 
 	shortcutsVersion = newVersion;
@@ -100,14 +119,14 @@ void SoundEditor::setShortcutsVersion(int32_t newVersion) {
 		paramShortcutsForAudioClips[0][6] = &audioClipSampleMarkerEditorMenuEnd;
 		paramShortcutsForAudioClips[1][6] = &audioClipSampleMarkerEditorMenuEnd;
 
-		paramShortcutsForSounds[0][6] = &sampleEndMenu;
-		paramShortcutsForSounds[1][6] = &sampleEndMenu;
+		paramShortcutsForSounds[0][6] = &sample0EndMenu;
+		paramShortcutsForSounds[1][6] = &sample1EndMenu;
 
-		paramShortcutsForSounds[2][6] = &noiseMenu;
-		paramShortcutsForSounds[3][6] = &oscSyncMenu;
+		paramShortcutsForSounds[2][6] = &source0WaveIndexMenu;
+		paramShortcutsForSounds[3][6] = &source1WaveIndexMenu;
 
-		paramShortcutsForSounds[2][7] = &sourceWaveIndexMenu;
-		paramShortcutsForSounds[3][7] = &sourceWaveIndexMenu;
+		paramShortcutsForSounds[2][7] = &noiseMenu;
+		paramShortcutsForSounds[3][7] = &oscSyncMenu;
 
 		modSourceShortcuts[0][7] = PatchSource::NOT_AVAILABLE;
 		modSourceShortcuts[1][7] = PatchSource::NOT_AVAILABLE;
@@ -177,6 +196,16 @@ bool SoundEditor::editingGateDrumRow() {
 	}
 	auto selectedDrumType = kit->selectedDrum->type;
 	return selectedDrumType == DrumType::GATE;
+}
+
+void SoundEditor::setCurrentSource(int32_t sourceIndex) {
+	currentSource = &currentSound->sources[sourceIndex];
+	currentSourceIndex = sourceIndex;
+	currentSampleControls = &currentSource->sampleControls;
+
+	if (currentMultiRange == nullptr && currentSource->ranges.getNumElements()) {
+		currentMultiRange = static_cast<MultisampleRange*>(currentSource->ranges.getElement(0));
+	}
 }
 
 bool SoundEditor::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
@@ -266,11 +295,11 @@ void SoundEditor::displayOrLanguageChanged() {
 void SoundEditor::setLedStates() {
 	indicator_leds::setLedState(IndicatorLED::SAVE, false); // In case we came from the save-Instrument UI
 
-	indicator_leds::setLedState(IndicatorLED::SYNTH, !inSettingsMenu() && !editingKit() && currentSound);
-	indicator_leds::setLedState(IndicatorLED::KIT, !inSettingsMenu() && editingKit() && currentSound);
-	indicator_leds::setLedState(IndicatorLED::MIDI,
-	                            !inSettingsMenu() && getCurrentOutputType() == OutputType::MIDI_OUT);
-	indicator_leds::setLedState(IndicatorLED::CV, !inSettingsMenu() && getCurrentOutputType() == OutputType::CV);
+	// turn off all instrument LED's when entering menu
+	indicator_leds::setLedState(IndicatorLED::SYNTH, false);
+	indicator_leds::setLedState(IndicatorLED::KIT, false);
+	indicator_leds::setLedState(IndicatorLED::MIDI, false);
+	indicator_leds::setLedState(IndicatorLED::CV, false);
 
 	indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, false);
 	indicator_leds::setLedState(IndicatorLED::SCALE_MODE, false);
@@ -286,6 +315,9 @@ void SoundEditor::setLedStates() {
 }
 
 void SoundEditor::enterSubmenu(MenuItem* newItem) {
+	// end current menu item session before beginning new menu item session
+	endScreen();
+
 	navigationDepth++;
 	menuItemNavigationRecord[navigationDepth] = newItem;
 	display->setNextTransitionDirection(1);
@@ -569,6 +601,9 @@ void SoundEditor::handlePotentialParamMenuChange(deluge::hid::Button b, bool on,
 }
 
 void SoundEditor::goUpOneLevel() {
+	// end current menu item session before beginning new menu item session
+	endScreen();
+
 	do {
 		if (navigationDepth == 0) {
 			exitCompletely();
@@ -605,6 +640,10 @@ void SoundEditor::exitCompletely() {
 	else if (inNoteRowEditor()) {
 		instrumentClipView.exitNoteRowEditor();
 	}
+
+	// end current menu item session before exiting
+	endScreen();
+
 	display->setNextTransitionDirection(-1);
 	close();
 	possibleChangeToCurrentRangeDisplay();
@@ -618,12 +657,19 @@ void SoundEditor::exitCompletely() {
 	currentUIMode = UI_MODE_NONE;
 }
 
-bool SoundEditor::findPatchedParam(int32_t paramLookingFor, int32_t* xout, int32_t* yout) {
+bool SoundEditor::findPatchedParam(int32_t paramLookingFor, int32_t* xout, int32_t* yout, bool* isSecondLayerParamOut) {
 	bool found = false;
 	for (int32_t x = 0; x < kDisplayWidth; x++) {
 		for (int32_t y = 0; y < kDisplayHeight; y++) {
 			if (deluge::modulation::params::patchedParamShortcuts[x][y] == paramLookingFor) {
+				*isSecondLayerParamOut = false;
+				*xout = x;
+				*yout = y;
 
+				return true;
+			}
+			if (deluge::modulation::params::patchedParamShortcutsSecondLayer[x][y] == paramLookingFor) {
+				*isSecondLayerParamOut = true;
 				*xout = x;
 				*yout = y;
 
@@ -638,9 +684,23 @@ void SoundEditor::updateSourceBlinks(MenuItem* currentItem) {
 	for (int32_t x = 0; x < 2; x++) {
 		for (int32_t y = 0; y < kDisplayHeight; y++) {
 			PatchSource source = modSourceShortcuts[x][y];
+			bool isSecondLayerSource = false;
+
+			if (secondLayerModSourceShortcutsToggled) {
+				const auto secondLayerSource = modSourceShortcutsSecondLayer[x][y];
+				if (secondLayerSource != PatchSource::NOT_AVAILABLE) {
+					source = secondLayerSource;
+					isSecondLayerSource = true;
+				}
+			}
+
 			if (source < kLastPatchSource) {
 				sourceShortcutBlinkFrequencies[x][y] =
 				    currentItem->shouldBlinkPatchingSourceShortcut(source, &sourceShortcutBlinkColours[x][y]);
+
+				if (sourceShortcutBlinkFrequencies[x][y] != 255 && isSecondLayerSource) {
+					sourceShortcutBlinkColours[x][y] = 0b00000011; // blink yellow on the second layer
+				}
 			}
 		}
 	}
@@ -661,9 +721,11 @@ void SoundEditor::setupShortcutsBlinkFromTable(MenuItem const* const currentItem
 void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 	resetSourceBlinks();
 	uiTimerManager.unsetTimer(TimerName::SHORTCUT_BLINK);
-	if (!inSettingsMenu() && !inNoteEditor() && currentItem != &sampleStartMenu && currentItem != &sampleEndMenu
+
+	if (!inSettingsMenu() && !inNoteEditor() && currentItem != &sample0StartMenu && currentItem != &sample1StartMenu
+	    && currentItem != &sample0EndMenu && currentItem != &sample1EndMenu
 	    && currentItem != &audioClipSampleMarkerEditorMenuStart && currentItem != &audioClipSampleMarkerEditorMenuEnd
-	    && currentItem != &fileSelectorMenu && currentItem != static_cast<void*>(&nameEditMenu)) {
+	    && currentItem != static_cast<void*>(&nameEditMenu)) {
 
 		memset(sourceShortcutBlinkFrequencies, 255, sizeof(sourceShortcutBlinkFrequencies));
 		memset(sourceShortcutBlinkColours, 0, sizeof(sourceShortcutBlinkColours));
@@ -713,8 +775,12 @@ void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 			// First, see if there's a shortcut for the actual MenuItem we're currently on
 			for (int32_t x = 0; x < kDisplayWidth; x++) {
 				for (int32_t y = 0; y < kDisplayHeight; y++) {
-					if (paramShortcutsForSounds[x][y] == currentItem) {
+					if (paramShortcutsForSoundsSecondLayer[x][y] == currentItem) {
+						setupShortcutBlink(x, y, 0, 0b00000011 /* yellow */);
+						goto stopThat;
+					}
 
+					if (paramShortcutsForSounds[x][y] == currentItem) {
 						if (x == 10 && y < 6 && editingReverbSidechain()) {
 							goto stopThat;
 						}
@@ -733,8 +799,9 @@ void SoundEditor::updatePadLightsFor(MenuItem* currentItem) {
 				int32_t paramLookingFor = currentItem->getIndexOfPatchedParamToBlink();
 				if (paramLookingFor != 255) {
 					int32_t x, y;
-					if (findPatchedParam(paramLookingFor, &x, &y)) {
-						setupShortcutBlink(x, y, 3);
+					bool isSecondLayerParam;
+					if (findPatchedParam(paramLookingFor, &x, &y, &isSecondLayerParam)) {
+						setupShortcutBlink(x, y, 3, isSecondLayerParam ? 0b00000011 /*yellow*/ : 0L);
 					}
 				}
 			}
@@ -783,15 +850,29 @@ bool SoundEditor::beginScreen(MenuItem* oldMenuItem) {
 	return getCurrentUI() == &soundEditor;
 }
 
-void SoundEditor::possibleChangeToCurrentRangeDisplay() {
-	uiNeedsRendering(&instrumentClipView, 0, 0xFFFFFFFF);
-	uiNeedsRendering(&automationView, 0, 0xFFFFFFFF);
-	uiNeedsRendering(&keyboardScreen, 0xFFFFFFFF, 0);
+/// end current menu item session before beginning new menu item session or exiting the sound editor
+void SoundEditor::endScreen() {
+	MenuItem* currentMenuItem = getCurrentMenuItem();
+	if (currentMenuItem != nullptr) {
+		currentMenuItem->endSession();
+	}
 }
 
-void SoundEditor::setupShortcutBlink(int32_t x, int32_t y, int32_t frequency) {
+void SoundEditor::possibleChangeToCurrentRangeDisplay() {
+	RootUI* rootUI = getRootUI();
+
+	if (rootUI == &keyboardScreen) {
+		uiNeedsRendering(&keyboardScreen, 0xFFFFFFFF, 0);
+	}
+	else if (rootUI->getUIContextType() == UIType::INSTRUMENT_CLIP) {
+		uiNeedsRendering(rootUI, 0, 0xFFFFFFFF);
+	}
+}
+
+void SoundEditor::setupShortcutBlink(int32_t x, int32_t y, int32_t frequency, int32_t colour) {
 	currentParamShorcutX = x;
 	currentParamShorcutY = y;
+	currentParamColour = colour;
 
 	shortcutBlinkCounter = 0;
 	paramShortcutBlinkFrequency = frequency;
@@ -804,15 +885,15 @@ void SoundEditor::setupExclusiveShortcutBlink(int32_t x, int32_t y) {
 }
 
 void SoundEditor::blinkShortcut() {
-	// We have to blink params and shortcuts at slightly different times, because blinking two pads on the same row at
-	// same time doesn't work
+	// We have to blink params and shortcuts at slightly different times, because blinking two pads on the same row
+	// at same time doesn't work
 
 	uint32_t counterForNow = shortcutBlinkCounter >> 1;
 
 	if (shortcutBlinkCounter & 1) {
 		// Blink param
 		if ((counterForNow & paramShortcutBlinkFrequency) == 0) {
-			PadLEDs::flashMainPad(currentParamShorcutX, currentParamShorcutY);
+			PadLEDs::flashMainPad(currentParamShorcutX, currentParamShorcutY, currentParamColour);
 		}
 		uiTimerManager.setTimer(TimerName::SHORTCUT_BLINK, 180);
 	}
@@ -863,39 +944,6 @@ void SoundEditor::scrollFinished() {
 const uint32_t selectEncoderUIModes[] = {UI_MODE_HOLDING_AFFECT_ENTIRE_IN_SOUND_EDITOR, UI_MODE_NOTES_PRESSED,
                                          UI_MODE_AUDITIONING, 0};
 
-// inertia and acceleration controls how fast the knob accelerates in horizontal menus
-// speedScale controls how we go from "raw speed" to speed used as offset multiplier
-// min and max speed clamp the max effective speed
-//
-// current values have been tuned to be slow enough to feel easy to control, but fast
-// enough to go from 0 to 50 with one fast turn of the encoder. speedScale and min/max
-// could potentially be user configurable in a small range.
-const double acceleration = 0.1;
-const double inertia = 1.0 - acceleration;
-const double speedScale = 0.15;
-const double minSpeed = 1.0;
-const double maxSpeed = 5.0;
-
-double getKnobSpeed(int8_t offset) {
-	// speed is current raw knob speed
-	static double speed = 0.0;
-	// lastOffset and lastEncoderTime keep track of our direction and time
-	static int8_t lastOffset = 0;
-	static double lastEncoderTime = 0.0;
-	double time = getSystemTime();
-	if (offset == lastOffset) {
-		// moving in the same direction, update speed
-		speed = speed * inertia + (1.0 / (time - lastEncoderTime)) * acceleration;
-	}
-	else {
-		// change of direction, reset speed
-		speed = 0.0;
-	}
-	lastEncoderTime = time;
-	lastOffset = offset;
-	return std::clamp((speed * speedScale), minSpeed, maxSpeed);
-}
-
 void SoundEditor::selectEncoderAction(int8_t offset) {
 	int8_t scaledOffset = offset;
 	// 5x acceleration of select encoder when holding the shift button
@@ -930,7 +978,7 @@ void SoundEditor::selectEncoderAction(int8_t offset) {
 			hadNoteTails = currentSound->allowNoteTails(modelStack);
 		}
 
-		item->selectEncoderAction(item->isSubmenu() ? offset * getKnobSpeed(offset) : scaledOffset);
+		item->selectEncoderAction(item->isSubmenu() ? offset : scaledOffset);
 
 		if (currentSound) {
 			if (getCurrentMenuItem()->selectEncoderActionEditsInstrument()) {
@@ -1005,13 +1053,11 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 		}
 
 		const MenuItem* item = nullptr;
-		Submenu* parent = nullptr;
 
 		// session views (arranger, song, performance)
 		if (!rootUIIsClipMinderScreen()) {
 			if (x <= (kDisplayWidth - 2)) {
 				item = paramShortcutsForSongView[x][y];
-				parent = parentsForSongShortcuts[x][y];
 			}
 
 			goto doSetup;
@@ -1022,7 +1068,6 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 			// only handle the shortcut for velocity in the mod sources column
 			if ((x <= (kDisplayWidth - 2)) || (x == 15 && y == 1)) {
 				item = paramShortcutsForKitGlobalFX[x][y];
-				parent = parentsForKitGlobalFXShortcuts[x][y];
 			}
 
 			goto doSetup;
@@ -1033,7 +1078,6 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 
 			if (x <= 14) {
 				item = paramShortcutsForAudioClips[x][y];
-				parent = parentsForAudioShortcuts[x][y];
 			}
 
 			goto doSetup;
@@ -1051,7 +1095,23 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 			// Shortcut to patch a modulation source to the parameter we're already looking at
 			if (getCurrentUI() == &soundEditor && ((x == 14 && y >= 5) || x == 15)) {
 
-				PatchSource source = modSourceShortcuts[x - 14][y];
+				const int32_t modSourceX = x - 14;
+				PatchSource source = modSourceShortcuts[modSourceX][y];
+
+				secondLayerModSourceShortcutsToggled =
+				    sourceShortcutBlinkFrequencies[modSourceX][y] != 255
+				            && getCurrentMenuItem()->getParamKind() == modulation::params::Kind::PATCH_CABLE
+				        ? !secondLayerModSourceShortcutsToggled
+				        : false;
+
+				// Replace with the second layer shortcut (e.g. env3, lfo3) if the pad was pressed twice
+				if (secondLayerModSourceShortcutsToggled) {
+					const auto secondLayerSource = modSourceShortcutsSecondLayer[modSourceX][y];
+					if (secondLayerSource != PatchSource::NOT_AVAILABLE) {
+						source = secondLayerSource;
+					}
+				}
+
 				if (source == PatchSource::SOON) {
 					display->displayPopup("SOON");
 				}
@@ -1097,12 +1157,14 @@ getOut:
 
 					// Otherwise...
 					else {
-
 						// If we've been given a MenuItem to go into, do that
 						if (newMenuItem
 						    && newMenuItem->checkPermissionToBeginSession(currentModControllable, currentSourceIndex,
 						                                                  &currentMultiRange)
 						           != MenuPermission::NO) {
+							// end current menu item session before beginning new menu item session
+							endScreen();
+
 							modulationItemFound = true;
 							navigationDepth = newNavigationDepth + 1;
 							menuItemNavigationRecord[navigationDepth] = newMenuItem;
@@ -1125,23 +1187,31 @@ getOut:
 			}
 
 			// Shortcut to edit a parameter
-			if (!modulationItemFound && (x < 14 || (x == 14 && y < 5) || (x == 15 && y == 1))) {
+			if (!modulationItemFound
+			    && (x < 14 || (x == 14 && y < 5) ||   //< regular shortcuts
+			        (x == 15 && y >= 1 && y <= 3))) { //< randomizer shortcuts
 
 				if (editingCVOrMIDIClip() || editingNonAudioDrumRow()) {
 					if (x == 11) {
-						if (editingGateDrumRow()) {
-							item = gateDrumParamShortcuts[y];
-						}
-						else {
-							item = midiOrCVParamShortcuts[y];
-						}
-						parent = parentsForMidiOrCVParamShortcuts[x][y];
+						item = editingGateDrumRow() ? gateDrumParamShortcuts[y] : midiOrCVParamShortcuts[y];
 					}
-					else if (x == 4) {
-						if (y == 7) {
-							item = &sequenceDirectionMenu;
-							parent = parentsForMidiOrCVParamShortcuts[x][y];
-						}
+					else if (x == 15) {
+						// Randomizer shortcuts for MIDI / CV clips
+						item = [&] {
+							switch (y) {
+							case 1:
+								return static_cast<MenuItem*>(&spreadVelocityMenuMIDIOrCV);
+							case 2:
+								return static_cast<MenuItem*>(&randomizerLockMenu);
+							case 3:
+								return static_cast<MenuItem*>(&randomizerNoteProbabilityMenuMIDIOrCV);
+							default:
+								return static_cast<MenuItem*>(nullptr);
+							}
+						}();
+					}
+					else if (x == 4 && y == 7) {
+						item = &sequenceDirectionMenu;
 					}
 					else {
 						item = nullptr;
@@ -1149,23 +1219,26 @@ getOut:
 				}
 				else {
 					item = paramShortcutsForSounds[x][y];
-					parent = parentsForSoundShortcuts[x][y];
-				}
 
+					// Replace with the second layer shortcut (e.g. env3 attack, lfo3 rate) if the pad was pressed twice
+					secondLayerShortcutsToggled =
+					    x == currentParamShorcutX && y == currentParamShorcutY
+					            && getCurrentMenuItem()->getParamKind() != modulation::params::Kind::PATCH_CABLE
+					        ? !secondLayerShortcutsToggled
+					        : false;
+
+					if (secondLayerShortcutsToggled) {
+						if (const auto secondLayerItem = paramShortcutsForSoundsSecondLayer[x][y];
+						    secondLayerItem != nullptr) {
+							item = secondLayerItem;
+						}
+					}
+				}
 doSetup:
 				if (item) {
-
 					if (item == comingSoonMenu) {
 						display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_UNIMPLEMENTED));
 						return ActionResult::DEALT_WITH;
-					}
-
-					// If we're on OLED, a parent menu & horizontal menus are in play,
-					// then we swap the parent in place of the child.
-					if (parent != nullptr && parent->renderingStyle() == Submenu::RenderingStyle::HORIZONTAL) {
-						if (parent->focusChild(item)) {
-							item = parent;
-						}
 					}
 
 					// if we're in the menu and automation view is the root (background) UI
@@ -1183,26 +1256,11 @@ doSetup:
 						}
 					}
 
-					if (display->haveOLED()) {
-						switch (x) {
-						case 0 ... 3:
-							setOscillatorNumberForTitles(x & 1);
-							break;
-
-						case 4 ... 5:
-							setModulatorNumberForTitles(x & 1);
-							break;
-
-						case 8 ... 9:
-							setEnvelopeNumberForTitles(x & 1);
-							break;
-						}
-					}
-					int32_t thingIndex = x & 1;
+					const int32_t thingIndex = x & 1;
 
 					bool setupSuccess = setup(getCurrentClip(), item, thingIndex);
 
-					if (!setupSuccess && item == &modulatorVolume && currentSource->oscType == OscType::DX7) {
+					if (!setupSuccess && item == &modulator0Volume && currentSource->oscType == OscType::DX7) {
 						item = &dxParam;
 						setupSuccess = setup(getCurrentClip(), item, thingIndex);
 					}
@@ -1216,6 +1274,7 @@ doSetup:
 			}
 		}
 	}
+
 	return ActionResult::DEALT_WITH;
 }
 
@@ -1619,16 +1678,25 @@ doMIDIOrCV:
 		}
 	}
 
+	// This isn't a very nice solution, but we have to set currentParamManager before calling
+	// checkPermissionToBeginSession(), because in a minority of cases, like "patch cable strength" / "modulation
+	// depth", it needs this.
+	currentParamManager = newParamManager;
+	// And we also have to set currentModControllable before focusing on the child item in a horizontal menu
+	currentModControllable = newModControllable;
+
+	// If we're on OLED, a parent menu & horizontal menus are in play,
+	// then we swap the parent in place of the child.
+	HorizontalMenu* parent = maybeGetParentMenu(newItem);
+	if (parent != nullptr && parent->focusChild(newItem)) {
+		newItem = parent;
+	}
+
 	::MultiRange* newRange = currentMultiRange;
 
 	if ((currentUI != &soundEditor && currentUI != &sampleMarkerEditor) || sourceIndex != currentSourceIndex) {
 		newRange = nullptr;
 	}
-
-	// This isn't a very nice solution, but we have to set currentParamManager before calling
-	// checkPermissionToBeginSession(), because in a minority of cases, like "patch cable strength" / "modulation
-	// depth", it needs this.
-	currentParamManager = newParamManager;
 
 	MenuPermission result = newItem->checkPermissionToBeginSession(newModControllable, sourceIndex, &newRange);
 
@@ -1636,13 +1704,13 @@ doMIDIOrCV:
 		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_PARAMETER_NOT_APPLICABLE));
 		return false;
 	}
-	else if (result == MenuPermission::MUST_SELECT_RANGE) {
+	if (result == MenuPermission::MUST_SELECT_RANGE) {
 
 		D_PRINTLN("must select range");
 
 		newRange = nullptr;
-		menu_item::multiRangeMenu.menuItemHeadingTo = newItem;
-		newItem = &menu_item::multiRangeMenu;
+		multiRangeMenu.menuItemHeadingTo = newItem;
+		newItem = &multiRangeMenu;
 	}
 
 	if (display->haveOLED()) {
@@ -1659,7 +1727,6 @@ doMIDIOrCV:
 	currentSound = newSound;
 	currentArpSettings = newArpSettings;
 	currentMultiRange = newRange;
-	currentModControllable = newModControllable;
 
 	if (currentModControllable) {
 		currentSidechain = &currentModControllable->sidechain;
@@ -1683,10 +1750,12 @@ doMIDIOrCV:
 		currentPriority = &audioClip->voicePriority;
 	}
 
+	// end current menu item session before beginning new menu item session
+	endScreen();
+
 	navigationDepth = 0;
 	shouldGoUpOneLevelOnBegin = false;
 	menuItemNavigationRecord[navigationDepth] = newItem;
-
 	display->setNextTransitionDirection(1);
 
 	return true;
@@ -1848,6 +1917,56 @@ void SoundEditor::mpeZonesPotentiallyUpdated() {
 			currentMenuItem->readValueAgain();
 		}
 	}
+}
+
+HorizontalMenu* SoundEditor::maybeGetParentMenu(MenuItem* item) {
+	const auto chain = getCurrentHorizontalMenusChain(false);
+	if (!chain.has_value()) {
+		return nullptr;
+	}
+
+	if (util::one_of<MenuItem*>(item, {&sample0StartMenu, &sample1StartMenu, &audioClipSampleMarkerEditorMenuEnd})) {
+		// for sample start/end points we go straight to waveform editor UI
+		return nullptr;
+	}
+
+	const auto it = std::ranges::find_if(chain.value(), [&](HorizontalMenu* menu) { return menu->hasItem(item); });
+	if (it == chain->end()) {
+		return nullptr;
+	}
+
+	if (util::one_of<MenuItem*>(item, {&file0SelectorMenu, &file1SelectorMenu})) {
+		// for file selectors we go straight to the browser
+		// and automatically navigate to the parent horizontal menu when a file is selected
+		item->parent = *it;
+		return nullptr;
+	}
+
+	return *it;
+}
+
+std::optional<std::span<HorizontalMenu* const>> SoundEditor::getCurrentHorizontalMenusChain(bool checkNavigationDepth) {
+	if (checkNavigationDepth && navigationDepth > 0) {
+		// If a horizontal menu was accessed from the sound menu,
+		// we shouldn't allow switching between menus in the chain because the sound menu has different hierarchy
+		return std::nullopt;
+	}
+	if (!display->haveOLED() || runtimeFeatureSettings.get(HorizontalMenus) == Off) {
+		return std::nullopt;
+	}
+	if (!rootUIIsClipMinderScreen()) {
+		return horizontalMenusChainForSong;
+	}
+	if (editingKitAffectEntire()) {
+		return horizontalMenusChainForKit;
+	}
+	if (editingCVOrMIDIClip()) {
+		return horizontalMenusChainForMidiOrCv;
+	}
+	if (getCurrentAudioClip() != nullptr) {
+		return horizontalMenusChainForAudioClip;
+	}
+	return horizontalMenusChainForSound;
 }
 
 void SoundEditor::renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas) {

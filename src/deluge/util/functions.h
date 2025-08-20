@@ -211,7 +211,6 @@ int32_t cableToLinearParamShortcut(int32_t sourceValue);
 int32_t cableToExpParamShortcut(int32_t sourceValue);
 
 class Sound;
-class StereoSample;
 int32_t getFinalParameterValueVolume(int32_t paramNeutralValue, int32_t patchedValue);
 int32_t getFinalParameterValueLinear(int32_t paramNeutralValue, int32_t patchedValue);
 int32_t getFinalParameterValueHybrid(int32_t paramNeutralValue, int32_t patchedValue);
@@ -392,11 +391,11 @@ int32_t divide_round_negative(int32_t dividend, int32_t divisor);
 }
 
 [[gnu::always_inline]] inline int32_t getMagnitudeOld(uint32_t input) {
-	return 32 - clz(input);
+	return 32 - std::countl_zero(input);
 }
 
 [[gnu::always_inline]] inline int32_t getMagnitude(uint32_t input) {
-	return 31 - clz(input);
+	return 31 - std::countl_zero(input);
 }
 
 [[gnu::always_inline]] inline bool isPowerOfTwo(uint32_t input) {
@@ -436,7 +435,4 @@ extern char miscStringBuffer[];
 constexpr size_t kShortStringBufferSize = 64;
 extern char shortStringBuffer[];
 
-struct StereoFloatSample {
-	float l;
-	float r;
-};
+float sigmoidLikeCurve(const float x, const float xMax, const float softening);

@@ -279,7 +279,6 @@ bool MIDIInstrument::setActiveClip(ModelStackWithTimelineCounter* modelStack, Pg
 		else {
 			allNotesOff();
 			for (int i = 0; i < kNumExpressionDimensions; i++) {
-				lastMonoExpression[i] = 0;
 				lastCombinedPolyExpression[i] = 0;
 				sendMonophonicExpressionEvent(i);
 			}
@@ -827,6 +826,7 @@ void MIDIInstrument::noteOnPostArp(int32_t noteCodePostArp, ArpNote* arpNote, in
 	// If no MPE, nice and simple.
 	if (!sendsToMPE()) {
 		outputMemberChannel = channel;
+		arpNote->outputMemberChannel[noteIndex] = outputMemberChannel;
 	}
 
 	// Or if MPE, we have to decide on a member channel to assign note to...

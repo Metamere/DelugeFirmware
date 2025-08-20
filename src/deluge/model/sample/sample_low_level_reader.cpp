@@ -18,8 +18,8 @@
 #include "model/sample/sample_low_level_reader.h"
 #include "definitions_cxx.hpp"
 #include "dsp/interpolate/interpolate.h"
-#include "dsp/stereo_sample.h"
 #include "dsp/timestretch/time_stretcher.h"
+#include "dsp_ng/core/types.hpp"
 #include "hid/display/display.h"
 #include "io/debug/log.h"
 #include "model/sample/sample.h"
@@ -105,7 +105,7 @@ bool SampleLowLevelReader::reassessReassessmentLocation(SamplePlaybackGuide* gui
 	int32_t finalClusterIndex = guide->getFinalClusterIndex(sample, shouldObeyMarkers());
 	if ((clusterIndex - finalClusterIndex) * guide->playDirection > 0) {
 		D_PRINTLN("saving from being past finalCluster");
-		Cluster* finalCluster = sample->clusters.getElement(finalClusterIndex)->cluster;
+		Cluster* finalCluster = sample->clusters[finalClusterIndex].cluster;
 		if (!finalCluster) {
 			return false;
 		}
@@ -301,8 +301,7 @@ bool SampleLowLevelReader::assignClusters(SamplePlaybackGuide* guide, Sample* sa
 	for (int32_t l = 0; l < kNumClustersLoadedAhead; l++) {
 
 		// Grab it.
-		clusters[l] = sample->clusters.getElement(clusterIndex)
-		                  ->getCluster(sample, clusterIndex, CLUSTER_ENQUEUE, priorityRating);
+		clusters[l] = sample->clusters[clusterIndex].getCluster(sample, clusterIndex, CLUSTER_ENQUEUE, priorityRating);
 
 		// The first one is required to not only have returned an object to us (which it might not have if insufficient
 		// RAM or maybe other reasons), but also to be fully loaded.
@@ -378,8 +377,7 @@ bool SampleLowLevelReader::moveOnToNextCluster(SamplePlaybackGuide* guide, Sampl
 
 			// Grab it.
 			clusters[kNumClustersLoadedAhead - 1] =
-			    sample->clusters.getElement(newClusterIndex)
-			        ->getCluster(sample, newClusterIndex, CLUSTER_ENQUEUE, priorityRating);
+			    sample->clusters[newClusterIndex].getCluster(sample, newClusterIndex, CLUSTER_ENQUEUE, priorityRating);
 
 			// If that failed (because no free RAM), no damage gets done.
 		}
@@ -1203,12 +1201,7 @@ bool SampleLowLevelReader::readSamplesForTimeStretching(
 	return true;
 }
 
-SampleLowLevelReader::SampleLowLevelReader(SampleLowLevelReader& other, bool stealReasons)
-    : interpolator_{other.interpolator_}, oscPos{other.oscPos}, currentPlayPos{other.currentPlayPos},
-      reassessmentLocation{other.reassessmentLocation}, clusterStartLocation{other.clusterStartLocation},
-      reassessmentAction{other.reassessmentAction},
-      interpolationBufferSizeLastTime{other.interpolationBufferSizeLastTime} {
-
+void SampleLowLevelReader::steal_clusters(SampleLowLevelReader& other, bool stealReasons) {
 	for (int32_t l = 0; l < kNumClustersLoadedAhead; l++) {
 		if (clusters[l] != nullptr) {
 			audioFileManager.removeReasonFromCluster(*clusters[l], "E131", false);
@@ -1225,4 +1218,32 @@ SampleLowLevelReader::SampleLowLevelReader(SampleLowLevelReader& other, bool ste
 			}
 		}
 	}
+}
+SampleLowLevelReader::SampleLowLevelReader(SampleLowLevelReader& other, bool stealReasons)
+    : oscPos{other.oscPos}, currentPlayPos{other.currentPlayPos}, reassessmentLocation{other.reassessmentLocation},
+      clusterStartLocation{other.clusterStartLocation}, reassessmentAction{other.reassessmentAction},
+      interpolationBufferSizeLastTime{other.interpolationBufferSizeLastTime}, interpolator_{other.interpolator_} {
+
+	steal_clusters(other, stealReasons);
+}
+SampleLowLevelReader::SampleLowLevelReader(SampleLowLevelReader&& other) noexcept
+    : oscPos{other.oscPos}, currentPlayPos{other.currentPlayPos}, reassessmentLocation{other.reassessmentLocation},
+      clusterStartLocation{other.clusterStartLocation}, reassessmentAction{other.reassessmentAction},
+      interpolationBufferSizeLastTime{other.interpolationBufferSizeLastTime}, interpolator_{other.interpolator_} {
+	steal_clusters(other, true);
+}
+SampleLowLevelReader& SampleLowLevelReader::operator=(SampleLowLevelReader&& other) noexcept {
+	if (this == &other) {
+		return *this;
+	}
+	oscPos = other.oscPos;
+	currentPlayPos = other.currentPlayPos;
+	reassessmentLocation = other.reassessmentLocation;
+	clusterStartLocation = other.clusterStartLocation;
+	reassessmentAction = other.reassessmentAction;
+	interpolationBufferSizeLastTime = other.interpolationBufferSizeLastTime;
+	interpolator_ = other.interpolator_;
+	unassignAllReasons(false);
+	steal_clusters(other, true);
+	return *this;
 }

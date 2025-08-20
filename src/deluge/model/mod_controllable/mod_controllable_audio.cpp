@@ -20,7 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "deluge/dsp/granular/GranularProcessor.h"
 #include "deluge/model/settings/runtime_feature_settings.h"
-#include "dsp/stereo_sample.h"
+#include "dsp_ng/core/types.hpp"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/ui.h"
 #include "gui/views/automation_view.h"
@@ -113,6 +113,8 @@ void ModControllableAudio::initParams(ParamManager* paramManager) {
 	unpatchedParams->params[params::UNPATCHED_ARP_GATE].setCurrentValueBasicForSetup(0);
 	unpatchedParams->params[params::UNPATCHED_NOTE_PROBABILITY].setCurrentValueBasicForSetup(2147483647);
 	unpatchedParams->params[params::UNPATCHED_ARP_BASS_PROBABILITY].setCurrentValueBasicForSetup(-2147483648);
+	unpatchedParams->params[params::UNPATCHED_ARP_SWAP_PROBABILITY].setCurrentValueBasicForSetup(-2147483648);
+	unpatchedParams->params[params::UNPATCHED_ARP_GLIDE_PROBABILITY].setCurrentValueBasicForSetup(-2147483648);
 	unpatchedParams->params[params::UNPATCHED_REVERSE_PROBABILITY].setCurrentValueBasicForSetup(-2147483648);
 	unpatchedParams->params[params::UNPATCHED_ARP_CHORD_PROBABILITY].setCurrentValueBasicForSetup(-2147483648);
 	unpatchedParams->params[params::UNPATCHED_ARP_RATCHET_PROBABILITY].setCurrentValueBasicForSetup(-2147483648);
@@ -147,9 +149,10 @@ bool ModControllableAudio::hasTrebleAdjusted(ParamManager* paramManager) {
 	return (unpatchedParams->getValue(params::UNPATCHED_TREBLE) != 0);
 }
 
-void ModControllableAudio::processFX(std::span<StereoSample> buffer, ModFXType modFXType, int32_t modFXRate,
-                                     int32_t modFXDepth, const Delay::State& delayWorkingState, int32_t* postFXVolume,
-                                     ParamManager* paramManager, bool anySoundComingIn, q31_t reverbSendAmount) {
+void ModControllableAudio::processFX(deluge::dsp::StereoBuffer<q31_t> buffer, ModFXType modFXType, int32_t modFXRate,
+                                     int32_t modFXDepth, const deluge::dsp::Delay::State& delayWorkingState,
+                                     int32_t* postFXVolume, ParamManager* paramManager, bool anySoundComingIn,
+                                     q31_t reverbSendAmount) {
 
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
@@ -168,11 +171,11 @@ void ModControllableAudio::processFX(std::span<StereoSample> buffer, ModFXType m
 
 	// Bass. No-change represented by 0. Off completely represented by -536870912
 	int32_t positive = (unpatchedParams->getValue(params::UNPATCHED_BASS) >> 1) + 1073741824;
-	int32_t bassAmount = (multiply_32x32_rshift32_rounded(positive, positive) << 1) - 536870912;
+	int32_t bassAmount = (q31_mult_rounded(positive, positive))-536870912;
 
 	// Treble. No-change represented by 536870912
 	positive = (unpatchedParams->getValue(params::UNPATCHED_TREBLE) >> 1) + 1073741824;
-	int32_t trebleAmount = multiply_32x32_rshift32_rounded(positive, positive) << 1;
+	int32_t trebleAmount = q31_mult_rounded(positive, positive);
 
 	if (thisDoBass || thisDoTreble) {
 
@@ -184,7 +187,7 @@ void ModControllableAudio::processFX(std::span<StereoSample> buffer, ModFXType m
 			trebleFreq = getExp(700000000, (unpatchedParams->getValue(params::UNPATCHED_TREBLE_FREQ) >> 5) * 6);
 		}
 
-		for (StereoSample& sample : buffer) {
+		for (deluge::dsp::StereoSample<q31_t>& sample : buffer) {
 			doEQ(thisDoBass, thisDoTreble, &sample.l, &sample.r, bassAmount, trebleAmount);
 		}
 	}
@@ -192,8 +195,8 @@ void ModControllableAudio::processFX(std::span<StereoSample> buffer, ModFXType m
 	// Delay ----------------------------------------------------------------------------------
 	delay.process(buffer, delayWorkingState);
 }
-void ModControllableAudio::processGrainFX(std::span<StereoSample> buffer, int32_t modFXRate, int32_t modFXDepth,
-                                          int32_t* postFXVolume, UnpatchedParamSet* unpatchedParams,
+void ModControllableAudio::processGrainFX(deluge::dsp::StereoBuffer<q31_t> buffer, int32_t modFXRate,
+                                          int32_t modFXDepth, int32_t* postFXVolume, UnpatchedParamSet* unpatchedParams,
                                           bool anySoundComingIn, q31_t verbAmount) {
 	// this shouldn't be possible but just in case
 	if (anySoundComingIn && !grainFX) [[unlikely]] {
@@ -209,7 +212,7 @@ void ModControllableAudio::processGrainFX(std::span<StereoSample> buffer, int32_
 	}
 }
 
-void ModControllableAudio::processReverbSendAndVolume(std::span<StereoSample> buffer, int32_t* reverbBuffer,
+void ModControllableAudio::processReverbSendAndVolume(deluge::dsp::StereoBuffer<q31_t> buffer, int32_t* reverbBuffer,
                                                       int32_t postFXVolume, int32_t postReverbVolume,
                                                       int32_t reverbSendAmount, int32_t pan,
                                                       bool doAmplitudeIncrement) {
@@ -241,10 +244,10 @@ void ModControllableAudio::processReverbSendAndVolume(std::span<StereoSample> bu
 		amplitudeIncrementR = multiply_32x32_rshift32(amplitudeIncrementR, amplitudeR) << 2;
 	}
 
-	for (StereoSample& sample : buffer) {
+	for (deluge::dsp::StereoSample<q31_t>& sample : buffer) {
 		// Send to reverb
 		if (reverbSendAmount != 0) {
-			*(reverbBuffer++) += multiply_32x32_rshift32(sample.l + sample.r, reverbSendAmountAndPostFXVolume) << 1;
+			*(reverbBuffer++) += q31_mult(sample.l + sample.r, reverbSendAmountAndPostFXVolume);
 		}
 
 		if (doAmplitudeIncrement) {
@@ -274,7 +277,7 @@ bool ModControllableAudio::isSRREnabled(ParamManager* paramManager) {
 	return (unpatchedParams->getValue(params::UNPATCHED_SAMPLE_RATE_REDUCTION) != -2147483648);
 }
 
-void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume,
+void ModControllableAudio::processSRRAndBitcrushing(deluge::dsp::StereoBuffer<q31_t> buffer, int32_t* postFXVolume,
                                                     ParamManager* paramManager) {
 	uint32_t bitCrushMaskForSRR = 0xFFFFFFFF;
 
@@ -291,7 +294,7 @@ void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buff
 		// If not also doing SRR
 		if (!srrEnabled) {
 			uint32_t mask = 0xFFFFFFFF << (19 + (positivePreset));
-			for (StereoSample& sample : buffer) {
+			for (deluge::dsp::StereoSample<q31_t>& sample : buffer) {
 				sample.l &= mask;
 				sample.r &= mask;
 			}
@@ -322,7 +325,7 @@ void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buff
 		int32_t highSampleRateIncrement = ((uint32_t)0xFFFFFFFF / (lowSampleRateIncrement >> 6)) << 6;
 		// int32_t highSampleRateIncrement = getExp(4194304, -(int32_t)(positivePreset >> 3)); // This would work too
 
-		for (StereoSample& sample : buffer) {
+		for (deluge::dsp::StereoSample<q31_t>& sample : buffer) {
 			// Convert down.
 			// If time to "grab" another sample for down-conversion...
 			if (lowSampleRatePos < 4194304) {
@@ -376,8 +379,8 @@ inline void ModControllableAudio::doEQ(bool doBass, bool doTreble, int32_t* inpu
 	if (doTreble) {
 		int32_t distanceToGoL = *inputL - withoutTrebleL;
 		int32_t distanceToGoR = *inputR - withoutTrebleR;
-		withoutTrebleL += multiply_32x32_rshift32(distanceToGoL, trebleFreq) << 1;
-		withoutTrebleR += multiply_32x32_rshift32(distanceToGoR, trebleFreq) << 1;
+		withoutTrebleL += q31_mult(distanceToGoL, trebleFreq);
+		withoutTrebleR += q31_mult(distanceToGoR, trebleFreq);
 		trebleOnlyL = *inputL - withoutTrebleL;
 		trebleOnlyR = *inputR - withoutTrebleR;
 		*inputL = withoutTrebleL; // Input now has had the treble removed. Or is this bad?
@@ -473,7 +476,7 @@ void ModControllableAudio::writeTagsToFile(Serializer& writer) {
 	writer.writeAttribute("thresh", compressor.getThreshold());
 	writer.writeAttribute("ratio", compressor.getRatio());
 	writer.writeAttribute("compHPF", compressor.getSidechain());
-	writer.writeAttribute("compBlend", compressor.getBlend());
+	writer.writeAttribute("compBlend", compressor.getBlend().raw());
 	writer.closeTag();
 
 	// Stutter
@@ -506,6 +509,10 @@ void ModControllableAudio::writeParamAttributesToFile(Serializer& writer, ParamM
 	unpatchedParams->writeParamAsAttribute(writer, "noteProbability", params::UNPATCHED_NOTE_PROBABILITY,
 	                                       writeAutomation);
 	unpatchedParams->writeParamAsAttribute(writer, "bassProbability", params::UNPATCHED_ARP_BASS_PROBABILITY,
+	                                       writeAutomation);
+	unpatchedParams->writeParamAsAttribute(writer, "swapProbability", params::UNPATCHED_ARP_SWAP_PROBABILITY,
+	                                       writeAutomation);
+	unpatchedParams->writeParamAsAttribute(writer, "glideProbability", params::UNPATCHED_ARP_GLIDE_PROBABILITY,
 	                                       writeAutomation);
 	unpatchedParams->writeParamAsAttribute(writer, "reverseProbability", params::UNPATCHED_REVERSE_PROBABILITY,
 	                                       writeAutomation);
@@ -651,6 +658,18 @@ bool ModControllableAudio::readParamTagFromFile(Deserializer& reader, char const
 		unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_ARP_BASS_PROBABILITY,
 		                           readAutomationUpToPos);
 		reader.exitTag("bassProbability");
+	}
+
+	else if (!strcmp(tagName, "swapProbability")) {
+		unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_ARP_SWAP_PROBABILITY,
+		                           readAutomationUpToPos);
+		reader.exitTag("swapProbability");
+	}
+
+	else if (!strcmp(tagName, "glideProbability")) {
+		unpatchedParams->readParam(reader, unpatchedParamsSummary, params::UNPATCHED_ARP_GLIDE_PROBABILITY,
+		                           readAutomationUpToPos);
+		reader.exitTag("glideProbability");
 	}
 
 	else if (!strcmp(tagName, "noteProbability")) {
@@ -851,8 +870,7 @@ doReadPatchedParam:
 				reader.exitTag("compHPF");
 			}
 			else if (!strcmp(tagName, "compBlend")) {
-				q31_t masterCompressorBlend = reader.readTagOrAttributeValueInt();
-				compressor.setBlend(masterCompressorBlend);
+				compressor.setBlend(FixedPoint<31>::from_raw(reader.readTagOrAttributeValueInt()));
 				reader.exitTag("compBlend");
 			}
 			else {
@@ -1293,7 +1311,7 @@ void ModControllableAudio::beginStutter(ParamManagerForTimeline* paramManager) {
 	}
 }
 
-void ModControllableAudio::processStutter(std::span<StereoSample> buffer, ParamManager* paramManager) {
+void ModControllableAudio::processStutter(deluge::dsp::StereoBuffer<q31_t> buffer, ParamManager* paramManager) {
 	if (stutterer.isStuttering(this)) {
 		stutterer.processStutter(buffer, paramManager, currentSong->getInputTickMagnitude(),
 		                         playbackHandler.getTimePerInternalTickInverse());
@@ -1724,9 +1742,9 @@ void ModControllableAudio::displayOtherModKnobSettings(uint8_t whichModButton, b
 bool ModControllableAudio::enableGrain() {
 
 	if (grainFX == nullptr) {
-		void* grainMemory = GeneralMemoryAllocator::get().allocStealable(sizeof(GranularProcessor));
+		void* grainMemory = GeneralMemoryAllocator::get().allocStealable(sizeof(deluge::dsp::GranularProcessor));
 		if (grainMemory) {
-			grainFX = new (grainMemory) GranularProcessor;
+			grainFX = new (grainMemory) deluge::dsp::GranularProcessor;
 			return true;
 		}
 	}

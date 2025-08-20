@@ -64,6 +64,7 @@
 #include "util/lookuptables/lookuptables.h"
 #include "util/try.h"
 #include <cstring>
+#include <hid/buttons.h>
 #include <new>
 #include <stdint.h>
 
@@ -2334,7 +2335,8 @@ void Song::deleteSoundsWhichWontSound() {
 	deleteAllBackedUpParamManagersWithClips();
 }
 
-void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuffer, int32_t sideChainHitPending) {
+void Song::renderAudio(deluge::dsp::StereoBuffer<q31_t> outputBuffer, int32_t* reverbBuffer,
+                       int32_t sideChainHitPending) {
 
 	// int32_t volumePostFX = getParamNeutralValue(params::GLOBAL_VOLUME_POST_FX);
 	int32_t volumePostFX =
@@ -2369,7 +2371,7 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 		AudioEngine::logAction(buf);
 #endif
 	}
-
+	AudioEngine::logAction("done rendering outputs");
 	// If recording the "MIX", this is the place where we want to grab it - before any master FX or volume applied
 	// Go through each SampleRecorder, feeding them audio
 	for (SampleRecorder* recorder = AudioEngine::firstRecorder; recorder; recorder = recorder->next) {
@@ -2382,8 +2384,9 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 			recorder->feedAudio(outputBuffer, true);
 		}
 	}
+	AudioEngine::logAction("done recorders");
 
-	Delay::State delayWorkingState = globalEffectable.createDelayWorkingState(paramManager);
+	deluge::dsp::Delay::State delayWorkingState = globalEffectable.createDelayWorkingState(paramManager);
 
 	int32_t postReverbVolume = paramNeutralValues[params::GLOBAL_VOLUME_POST_REVERB_SEND];
 	int32_t reverbSendAmount =
@@ -2398,6 +2401,7 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 
 	globalEffectable.processReverbSendAndVolume(outputBuffer, reverbBuffer, volumePostFX, postReverbVolume,
 	                                            reverbSendAmount >> 1);
+	AudioEngine::logAction("done global effectables");
 
 	if (playbackHandler.isEitherClockActive() && !playbackHandler.ticksLeftInCountIn
 	    && currentPlaybackMode == &arrangement) {
@@ -2410,6 +2414,7 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 			paramManager.tickSamples(outputBuffer.size(), modelStackWithThreeMainThings);
 		}
 	}
+	AudioEngine::logAction("done render");
 }
 
 void Song::setTimePerTimerTick(uint64_t newTimeBig, bool shouldLogAction) {
@@ -5663,6 +5668,8 @@ String Song::getSongFullPath() {
 	return fullPath;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstack-usage="
 void Song::setSongFullPath(const char* fullPath) {
 	if (char* filename = strrchr((char*)fullPath, '/')) {
 		auto fullPathLength = strlen(fullPath);
@@ -5678,6 +5685,7 @@ void Song::setSongFullPath(const char* fullPath) {
 		name.set(fullPath);
 	}
 }
+#pragma GCC diagnostic pop
 
 void Song::midiCableBendRangeUpdatedViaMessage(ModelStack* modelStack, MIDICable& cable, int32_t channelOrZone,
                                                int32_t whichBendRange, int32_t bendSemitones) {
@@ -5761,6 +5769,15 @@ void Song::displayCurrentRootNoteAndScaleName() {
 		}
 	}
 	display->displayPopup(popupMsg.c_str());
+}
+
+void Song::commandTranspose(int32_t interval) {
+	if (Buttons::isShiftButtonPressed()) {
+		adjustMasterTransposeInterval(interval);
+	}
+	else {
+		transpose(interval);
+	}
 }
 
 void Song::transpose(int32_t interval) {

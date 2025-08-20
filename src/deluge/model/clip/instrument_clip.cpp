@@ -443,7 +443,7 @@ Error InstrumentClip::beginLinearRecording(ModelStackWithTimelineCounter* modelS
 
 			int32_t velocity = thisDrum->earlyNoteVelocity;
 
-			if (velocity) {
+			if (velocity != 0) {
 				thisDrum->earlyNoteVelocity = 0;
 
 				int32_t noteRowIndex;
@@ -1445,8 +1445,11 @@ bool InstrumentClip::renderAsSingleRow(ModelStackWithTimelineCounter* modelStack
 		NoteRow* thisNoteRow = noteRows.getElement(i);
 
 		if (!(i & 15)) {
-			// Sean: replace routineWithClusterLoading call, just yield to run a single thing (probably audio)
-			yield([]() { return true; });
+			if (!AudioEngine::audioRoutineLocked) {
+				// Sean: replace routineWithClusterLoading call, yield until AudioRoutine is called
+				AudioEngine::routineBeenCalled = false;
+				yield([]() { return (AudioEngine::routineBeenCalled == true); });
+			}
 			AudioEngine::logAction("renderAsSingleRow still");
 		}
 

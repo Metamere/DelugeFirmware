@@ -41,6 +41,7 @@
 #include "model/song/song.h"
 #include "model/voice/voice.h"
 #include "model/voice/voice_sample.h"
+#include "modulation/envelope.h"
 #include "modulation/patch/patch_cable_set.h"
 #include "processing/audio_output.h"
 #include "processing/engines/cv_engine.h"
@@ -59,6 +60,7 @@
 #include "util/functions.h"
 #include "util/misc.h"
 #include <algorithm>
+#include <bits/ranges_algo.h>
 #include <cstdint>
 #include <cstring>
 #include <execution>
@@ -147,8 +149,8 @@ uint32_t timeLastSideChainHit = 2147483648;
 int32_t sizeLastSideChainHit;
 
 Metronome metronome{};
-StereoFloatSample approxRMSLevel{0};
-AbsValueFollower envelopeFollower{};
+deluge::dsp::StereoSample<float> approxRMSLevel{0};
+deluge::dsp::AbsValueFollower envelopeFollower{};
 int32_t timeLastPopup{0};
 
 SoundDrum* sampleForPreview;
@@ -184,11 +186,11 @@ LiveInputBuffer* liveInputBuffers[3];
 // For debugging
 uint16_t lastRoutineTime;
 
-alignas(CACHE_LINE_SIZE) std::array<StereoSample, SSI_TX_BUFFER_NUM_SAMPLES> renderingMemory;
+alignas(CACHE_LINE_SIZE) std::array<deluge::dsp::StereoSample<q31_t>, SSI_TX_BUFFER_NUM_SAMPLES> renderingMemory;
 alignas(CACHE_LINE_SIZE) std::array<int32_t, 2 * SSI_TX_BUFFER_NUM_SAMPLES> reverbMemory;
 
-StereoSample* renderingBufferOutputPos = renderingMemory.begin();
-StereoSample* renderingBufferOutputEnd = renderingMemory.begin();
+deluge::dsp::StereoSample<q31_t>* renderingBufferOutputPos = renderingMemory.begin();
+deluge::dsp::StereoSample<q31_t>* renderingBufferOutputEnd = renderingMemory.begin();
 
 int32_t masterVolumeAdjustmentL;
 int32_t masterVolumeAdjustmentR;
@@ -300,15 +302,17 @@ void terminateOneVoice(size_t numSamples) {
 		return;
 	}
 
-	auto& voice = *std::ranges::min_element(all_voices, [](const auto& best, const auto& voice) {
+	const Sound::ActiveVoice* best = &all_voices.front();
+	for (const auto& voice : all_voices | std::views::drop(1)) {
 		// if we're not skipping releasing voices, or if we are and this one isn't in fast release
-		if (voice->envelopes[0].state <= EnvelopeStage::FAST_RELEASE
-		    && voice->envelopes[0].fastReleaseIncrement < SOFT_CULL_INCREMENT) {
-			return voice->getPriorityRating() > best->getPriorityRating();
+		if (voice->envelopes[0].state >= EnvelopeStage::FAST_RELEASE
+		    && voice->envelopes[0].fastReleaseIncrement >= SOFT_CULL_INCREMENT) {
+			continue;
 		}
-		return false;
-	});
+		best = (*best)->getPriorityRating() < voice->getPriorityRating() ? &voice : best;
+	}
 
+	const Sound::ActiveVoice& voice = *best;
 	bool still_rendering = voice->doFastRelease(SOFT_CULL_INCREMENT);
 	if (!still_rendering) {
 		voice->sound.freeActiveVoice(voice);
@@ -325,13 +329,17 @@ void forceReleaseOneVoice(size_t num_samples) {
 		return;
 	}
 
-	auto& voice = *std::ranges::min_element(all_voices, [](const auto& best, const auto& voice) {
-		if (voice->envelopes[0].state <= EnvelopeStage::FAST_RELEASE
-		    && voice->envelopes[0].fastReleaseIncrement < 4096) {
-			return voice->getPriorityRating() > best->getPriorityRating();
+	const Sound::ActiveVoice* best = &all_voices.front();
+	for (const auto& voice : all_voices | std::views::drop(1)) {
+		// if the voice is already releasing faste than this we'd rather release another voice
+		if (voice->envelopes[0].state >= EnvelopeStage::FAST_RELEASE
+		    && voice->envelopes[0].fastReleaseIncrement >= 4096) {
+			continue;
 		}
-		return false;
-	});
+		best = (*best)->getPriorityRating() < voice->getPriorityRating() ? &voice : best;
+	}
+
+	const Sound::ActiveVoice& voice = *best;
 
 	auto stage = voice->envelopes[0].state;
 	if (stage < EnvelopeStage::FAST_RELEASE) {
@@ -500,6 +508,7 @@ void tickSongFinalizeWindows(size_t& numSamples, int32_t& timeWithinWindowAtWhic
 void flushMIDIGateBuffers();
 void renderAudio(size_t numSamples);
 void renderAudioForStemExport(size_t numSamples);
+void dumpAudioLog();
 /// inner loop of audio rendering, deliberately not in header
 [[gnu::hot]] void routine_() {
 
@@ -950,13 +959,22 @@ void scheduleMidiGateOutISR(uint32_t saddrPosAtStart, int32_t unadjustedNumSampl
 	}
 }
 
+void routine_task() {
+	if (audioRoutineLocked) {
+		logAction("AudioDriver::routine locked");
+		ignoreForStats();
+		return; // Prevents this from being called again from inside any e.g. memory allocation routines that get
+		        // called from within this!
+	}
+	routine();
+}
+
 void routine() {
 
 	logAction("AudioDriver::routine");
 
 	if (audioRoutineLocked) {
 		logAction("AudioDriver::routine locked");
-		ignoreForStats();
 		return; // Prevents this from being called again from inside any e.g. memory allocation routines that get
 		        // called from within this!
 	}
@@ -977,7 +995,6 @@ void routine() {
 			}
 #endif
 			routine_();
-			routineBeenCalled = true;
 			numRoutines += 1;
 		}
 	}
@@ -1004,6 +1021,7 @@ void routine() {
 		}
 	}
 	audioRoutineLocked = false;
+	routineBeenCalled = true;
 }
 
 int32_t getNumSamplesLeftToOutputFromPreviousRender() {
@@ -1016,8 +1034,9 @@ bool doSomeOutputting() {
 	// Copy to actual output buffer, and apply heaps of gain too, with clipping
 	int32_t numSamplesOutputted = 0;
 
-	std::span<StereoSample> outputBufferForResampling{reinterpret_cast<StereoSample*>(spareRenderingBuffer), 128 * 2};
-	StereoSample* __restrict__ renderingBufferOutputPosNow = renderingBufferOutputPos;
+	deluge::dsp::StereoBuffer<q31_t> outputBufferForResampling{
+	    reinterpret_cast<deluge::dsp::StereoSample<q31_t>*>(spareRenderingBuffer), 128 * 2};
+	deluge::dsp::StereoSample<q31_t>* __restrict__ renderingBufferOutputPosNow = renderingBufferOutputPos;
 	int32_t* __restrict__ i2sTXBufferPosNow = (int32_t*)i2sTXBufferPos;
 	int32_t* __restrict__ inputReadPos = (int32_t*)i2sRXBufferPos;
 
@@ -1164,8 +1183,10 @@ bool doSomeOutputting() {
 				// stereo samples, we can offset it one sample to get it to operate on the right channel
 				std::span streamToRecord =
 				    (recorder->mode == AudioInputChannel::RIGHT)
-				        ? std::span{reinterpret_cast<StereoSample*>(recorder->sourcePos + 1), numSamplesFeedingNow}
-				        : std::span{reinterpret_cast<StereoSample*>(recorder->sourcePos), numSamplesFeedingNow};
+				        ? std::span{reinterpret_cast<deluge::dsp::StereoSample<q31_t>*>(recorder->sourcePos + 1),
+				                    numSamplesFeedingNow}
+				        : std::span{reinterpret_cast<deluge::dsp::StereoSample<q31_t>*>(recorder->sourcePos),
+				                    numSamplesFeedingNow};
 
 				recorder->feedAudio(streamToRecord);
 
@@ -1203,7 +1224,7 @@ void dumpAudioLog() {
 	uint16_t currentTime = *TCNT[TIMER_SYSTEM_FAST];
 	uint16_t timePassedA = (uint16_t)currentTime - lastRoutineTime;
 	uint32_t timePassedUSA = fastTimerCountToUS(timePassedA);
-	if (definitelyLog || timePassedUSA > (StorageManager::devVarA * 10)) {
+	if (definitelyLog || timePassedUSA > (1000)) {
 
 		D_PRINTLN("");
 		for (int32_t i = 0; i < numAudioLogItems; i++) {
@@ -1217,6 +1238,7 @@ void dumpAudioLog() {
 	definitelyLog = false;
 	lastRoutineTime = *TCNT[TIMER_SYSTEM_FAST];
 	numAudioLogItems = 0;
+	memset(audioLogStrings, 0, sizeof(audioLogStrings));
 #endif
 }
 

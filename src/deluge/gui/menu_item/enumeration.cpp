@@ -2,6 +2,7 @@
 #include "gui/ui/sound_editor.h"
 #include "hid/display/display.h"
 #include "hid/display/oled.h"
+#include "util/functions.h"
 
 namespace deluge::gui::menu_item {
 void Enumeration::beginSession(MenuItem* navigatedBackwardFrom) {
@@ -51,23 +52,11 @@ void Enumeration::getShortOption(StringBuf& opt) {
 void Enumeration::renderInHorizontalMenu(int32_t startX, int32_t width, int32_t startY, int32_t height) {
 	deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
 
-	renderColumnLabel(startX, width, startY);
-
 	// Render current value
-
 	DEF_STACK_STRING_BUF(shortOpt, kShortStringBufferSize);
 	getShortOption(shortOpt);
-	// Remove any spaces
-	shortOpt.removeSpaces();
-	int32_t pxLen;
-	// Trim characters from the end until it fits.
-	while ((pxLen = image.getStringWidthInPixels(shortOpt.c_str(), kTextSpacingY)) >= width) {
-		shortOpt.truncate(shortOpt.size() - 1);
-	}
-	// Padding to center the string. If we can't center exactly, 1px right is better than 1px left.
-	int32_t pad = (width + 1 - pxLen) / 2;
-	image.drawString(shortOpt.c_str(), startX + pad, startY + kTextSpacingY + 2, kTextSpacingX, kTextSpacingY, 0,
-	                 startX + width - kTextSpacingX);
+
+	image.drawStringCentered(shortOpt, startX, startY + 3, kTextSpacingX, kTextSpacingY, width);
 }
 
 } // namespace deluge::gui::menu_item

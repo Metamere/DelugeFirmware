@@ -70,7 +70,7 @@ public:
 
 	[[nodiscard]] constexpr float getWidth() const override { return width; }
 
-	[[gnu::always_inline]] void ProcessOne(int32_t input, StereoSample& output_sample) {
+	[[gnu::always_inline]] void ProcessOne(int32_t input, StereoSample<q31_t>& output_sample) {
 		int32_t out_l = 0;
 		int32_t out_r = 0;
 
@@ -87,15 +87,15 @@ public:
 		}
 
 		// Calculate output
-		out_l = (out_l + multiply_32x32_rshift32_rounded(out_r, wet2)) << 1;
-		out_r = (out_r + multiply_32x32_rshift32_rounded(out_l, wet2)) << 1;
+		out_l = (out_l + q31_mult_rounded(out_r, wet2));
+		out_r = (out_r + q31_mult_rounded(out_l, wet2));
 
 		// Mix output
 		output_sample.l += multiply_32x32_rshift32_rounded(out_l, this->getPanLeft());
 		output_sample.r += multiply_32x32_rshift32_rounded(out_r, this->getPanRight());
 	}
 
-	[[gnu::always_inline]] void process(std::span<int32_t> input, std::span<StereoSample> output) override {
+	[[gnu::always_inline]] void process(std::span<int32_t> input, StereoBuffer<q31_t> output) override {
 		// HPF on reverb input, cos if it has DC offset, the reverb magnifies that, and the sound farts out
 		for (int32_t& reverb_sample : input) {
 			int32_t distance_to_go_l = reverb_sample - reverb_send_post_lpf_;

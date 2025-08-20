@@ -125,13 +125,7 @@ void PlaybackHandler::midiRoutine() {
 		//  todo - should add the ability to block the task in the task manager instead but whatever
 		return;
 	}
-	// Check incoming USB MIDI
-	midiEngine.checkIncomingUsbMidi();
-
-	// Check incoming Serial MIDI
-	for (int32_t i = 0; i < 12 && midiEngine.checkIncomingSerialMidi(); i++) {
-		;
-	}
+	midiEngine.checkIncomingMidi();
 }
 
 // This function will be called repeatedly, at all times, to see if it's time to do a tick, and such
@@ -3201,8 +3195,8 @@ doCreateNextOverdub:
 
 			// If we're holding down a Clip in Session View, prioritize that
 			if (getRootUI() == &sessionView && currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW) {
-				clipToCreateOverdubFrom = sessionView.getClipOnScreen(sessionView.selectedClipPressYDisplay);
-				clipIndexToCreateOverdubFrom = sessionView.selectedClipPressYDisplay + currentSong->songViewYScroll;
+				clipToCreateOverdubFrom = sessionView.getClipForLayout();
+				clipIndexToCreateOverdubFrom = sessionView.getClipIndexForLayout();
 				sessionView.performActionOnPadRelease = false;
 			}
 

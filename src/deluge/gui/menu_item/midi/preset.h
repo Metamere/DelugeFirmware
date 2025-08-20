@@ -31,14 +31,14 @@ public:
 	[[nodiscard]] int32_t getMaxValue() const override { return 128; } // Probably not needed cos we override below...
 
 	void drawInteger(int32_t textWidth, int32_t textHeight, int32_t yPixel) override {
-		deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+		oled_canvas::Canvas& canvas = OLED::main;
 		char buffer[12];
 		char const* text;
 		if (this->getValue() == 128) {
 			text = l10n::get(l10n::String::STRING_FOR_NONE);
 		}
 		else {
-			intToString(this->getValue() + 1, buffer, 1);
+			intToString(this->getValue(), buffer, 1);
 			text = buffer;
 		}
 		canvas.drawStringCentred(text, yPixel + OLED_MAIN_TOPMOST_PIXEL, textWidth, textHeight);
@@ -49,7 +49,7 @@ public:
 			display->setText(l10n::get(l10n::String::STRING_FOR_NONE));
 		}
 		else {
-			display->setTextAsNumber(this->getValue() + 1);
+			display->setTextAsNumber(this->getValue());
 		}
 	}
 
@@ -67,5 +67,25 @@ public:
 		}
 		Number::selectEncoderAction(offset);
 	}
+
+	void renderInHorizontalMenu(int32_t startX, int32_t width, int32_t startY, int32_t height) override {
+		oled_canvas::Canvas& image = OLED::main;
+
+		DEF_STACK_STRING_BUF(paramValue, 5);
+		int32_t sizeX, sizeY;
+		if (this->getValue() == 128) {
+			paramValue.append(l10n::get(l10n::String::STRING_FOR_NONE));
+			sizeX = kTextSpacingX;
+			sizeY = kTextSpacingY;
+		}
+		else {
+			paramValue.appendInt(getValue());
+			sizeX = kTextTitleSpacingX;
+			sizeY = kTextTitleSizeY;
+		}
+		image.drawStringCentered(paramValue, startX, startY + 2, sizeX, sizeY, width);
+	}
+
+	[[nodiscard]] bool showNotification() const override { return false; }
 };
 } // namespace deluge::gui::menu_item::midi

@@ -95,10 +95,10 @@ enum SessionMacroKind : int8_t {
 };
 
 struct SessionMacro {
-	SessionMacroKind kind;
-	Clip* clip;
-	Output* output;
-	uint8_t section;
+	SessionMacroKind kind{NO_MACRO};
+	Clip* clip{nullptr};
+	Output* output{nullptr};
+	uint8_t section{0};
 };
 
 class Song final : public TimelineCounter {
@@ -257,7 +257,7 @@ public:
 
 	String dirPath;
 
-	SessionMacro sessionMacros[8];
+	std::array<SessionMacro, 8> sessionMacros{};
 
 	bool getAnyClipsSoloing() const;
 	Clip* getCurrentClip();
@@ -279,7 +279,7 @@ public:
 	Error readFromFile(Deserializer& reader);
 	void writeToFile();
 	void loadAllSamples(bool mayActuallyReadFiles = true);
-	void renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuffer, int32_t sideChainHitPending);
+	void renderAudio(deluge::dsp::StereoBuffer<q31_t> outputBuffer, int32_t* reverbBuffer, int32_t sideChainHitPending);
 	bool isYNoteAllowed(int32_t yNote, bool inKeyMode);
 	Clip* syncScalingClip = nullptr;
 	void setTimePerTimerTick(uint64_t newTimeBig, bool shouldLogAction = false);
@@ -419,6 +419,7 @@ public:
 	// END ~ new Automation Arranger View Variables
 
 	// Song level transpose control (encoder actions)
+	void commandTranspose(int32_t interval);
 	int32_t masterTransposeInterval = 0;
 	void transpose(int32_t interval);
 	void adjustMasterTransposeInterval(int32_t interval);

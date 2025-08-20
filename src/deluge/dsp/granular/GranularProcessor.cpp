@@ -25,6 +25,9 @@
 #include "modulation/lfo.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
+#include "util/functions.h"
+
+namespace deluge::dsp {
 
 void GranularProcessor::setWrapsToShutdown() {
 
@@ -44,7 +47,7 @@ void GranularProcessor::setWrapsToShutdown() {
 	grainBuffer->inUse = true;
 }
 
-void GranularProcessor::processGrainFX(std::span<StereoSample> buffer, int32_t grainRate, int32_t grainMix,
+void GranularProcessor::processGrainFX(StereoBuffer<q31_t> buffer, int32_t grainRate, int32_t grainMix,
                                        int32_t grainDensity, int32_t pitchRandomness, int32_t* postFXVolume,
                                        bool anySoundComingIn, float tempoBPM, q31_t reverbAmount) {
 	if (anySoundComingIn || wrapsToShutdown >= 0) {
@@ -59,7 +62,7 @@ void GranularProcessor::processGrainFX(std::span<StereoSample> buffer, int32_t g
 		}
 		setupGrainFX(grainRate, grainMix, grainDensity, pitchRandomness, postFXVolume, tempoBPM);
 		int i = 0;
-		for (StereoSample& sample : buffer) {
+		for (StereoSample<q31_t>& sample : buffer) {
 			StereoSample grainWet = processOneGrainSample(sample);
 			auto wetl = q31_mult(grainWet.l, _grainVol);
 			auto wetr = q31_mult(grainWet.r, _grainVol);
@@ -90,8 +93,8 @@ void GranularProcessor::setupGrainFX(int32_t grainRate, int32_t grainMix, int32_
 	if (!grainInitialized && bufferWriteIndex >= 65536) {
 		grainInitialized = true;
 	}
-	*postFXVolume = multiply_32x32_rshift32(*postFXVolume, ONE_OVER_SQRT2_Q31) << 1; // Divide by sqrt(2)
-	                                                                                 // Shift
+	*postFXVolume = q31_mult(*postFXVolume, ONE_OVER_SQRT2_Q31); // Divide by sqrt(2)
+	                                                             // Shift
 	_grainShift =
 	    44 * 300; // this is where we should tempo sync ( it's kSampleRate / 1000 * 300 for a 300ms base delay amount);
 	// Size depends on both density and rate
@@ -125,7 +128,7 @@ void GranularProcessor::setupGrainFX(int32_t grainRate, int32_t grainMix, int32_
 		_grainFeedbackVol = _grainVol >> 1;
 	}
 }
-StereoSample GranularProcessor::processOneGrainSample(StereoSample currentSample) {
+StereoSample<q31_t> GranularProcessor::processOneGrainSample(StereoSample<q31_t> currentSample) {
 	if (bufferWriteIndex >= kModFXGrainBufferSize) {
 		bufferWriteIndex = 0;
 		wrapsToShutdown -= 1;
@@ -284,24 +287,7 @@ void GranularProcessor::clearGrainFXBuffer() {
 	bufferWriteIndex = 0;
 	getBuffer();
 }
-GranularProcessor::GranularProcessor() {
-	wrapsToShutdown = 0;
-	bufferWriteIndex = 0;
-	_grainShift = 13230; // 300ms
-	_grainSize = 13230;  // 300ms
-	_grainRate = 1260;   // 35hz
-	_grainFeedbackVol = 161061273;
-	for (auto& grain : grains) {
-		grain.length = 0;
-	}
-	_grainVol = 0;
-	_grainDryVol = 2147483647;
-	_pitchRandomness = 0;
-	grainLastTickCountIsZero = true;
-	grainInitialized = false;
-	grainBuffer = nullptr;
-	getBuffer();
-}
+
 void GranularProcessor::getBuffer() {
 	if (grainBuffer == nullptr) {
 		void* grainBufferMemory = GeneralMemoryAllocator::get().allocStealable(sizeof(GrainBuffer));
@@ -317,28 +303,22 @@ void GranularProcessor::getBuffer() {
 	    false; // "clear" the buffer by stopping grains from being generated until it's refilled with fresh data
 	bufferWriteIndex = 0;
 }
+
 GranularProcessor::~GranularProcessor() {
 	delete grainBuffer;
 }
-GranularProcessor::GranularProcessor(const GranularProcessor& other) {
-	wrapsToShutdown = other.wrapsToShutdown;
-	bufferWriteIndex = other.bufferWriteIndex;
-	_grainShift = other._grainShift; // 300ms
-	_grainSize = other._grainSize;   // 300ms
-	_grainRate = other._grainRate;   // 35hz
-	_grainFeedbackVol = other._grainFeedbackVol;
-	for (int i = 0; i < 8; i++) {
-		GranularProcessor::grains[i].length = 0;
-	}
-	_grainVol = other._grainVol;
-	_grainDryVol = other._grainDryVol;
-	_pitchRandomness = other._pitchRandomness;
-	grainLastTickCountIsZero = true;
-	grainInitialized = false;
+
+GranularProcessor::GranularProcessor(const GranularProcessor& other)
+    : bufferWriteIndex(other.bufferWriteIndex), _grainSize(other._grainSize), _grainRate(other._grainRate),
+      _grainShift(other._grainShift), _grainFeedbackVol(other._grainFeedbackVol),
+      wrapsToShutdown(other.wrapsToShutdown), _grainVol(other._grainVol), _grainDryVol(other._grainDryVol),
+      _pitchRandomness(other._pitchRandomness), grains{} {
 	getBuffer();
 }
+
 void GranularProcessor::startSkippingRendering() {
-	if (grainBuffer) {
+	if (grainBuffer != nullptr) {
 		grainBuffer->inUse = false;
 	}
 }
+} // namespace deluge::dsp

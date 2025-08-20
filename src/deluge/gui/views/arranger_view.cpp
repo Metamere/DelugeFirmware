@@ -2174,19 +2174,13 @@ bool ArrangerView::renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth 
 	    doActualRender(currentSong->xScroll[NAVIGATION_ARRANGEMENT], currentSong->xZoom[NAVIGATION_ARRANGEMENT],
 	                   whichRows, &image[0][0], occupancyMask, kDisplayWidth, kDisplayWidth + kSideBarWidth);
 
-	// Add negative region indicator when dragging clip instances up to the zero mark
-	bool dragging_clip_instance = isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW);
-	if (dragging_clip_instance && currentSong->xScroll[NAVIGATION_ARRANGEMENT] < 0) {
-		// Calculate how many columns are before the zero point
-		int32_t zero_column = getSquareFromPos(0);
+	// Add negative region indicator when dragging clip instances left to the start
+	if (isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW) && currentSong->xScroll[NAVIGATION_ARRANGEMENT] < 0) {
 
-		// Light up all columns that represent negative time positions with light grey
+		// Light up all columns that represent negative time positions with standard dim grey
 		for (int32_t yDisplay = 0; yDisplay < kDisplayHeight; yDisplay++) {
-			for (int32_t xDisplay = 0; xDisplay < zero_column && xDisplay < kDisplayWidth; xDisplay++) {
-				// Only overlay grey if the current pixel is black to preserve colors of dragged portion
-				if (image[yDisplay][xDisplay] == colours::black) {
-					image[yDisplay][xDisplay] = RGB::monochrome(10);
-				}
+			for (int32_t xDisplay = 0; xDisplay < getSquareFromPos(0); xDisplay++) {
+				image[yDisplay][xDisplay] = colours::grey;
 			}
 		}
 	}
@@ -2871,8 +2865,11 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 		// but stop it once the clip instance is at 0
 		bool can_drag_clip_instance = isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW) && getDraggedClipPosition() > 0;
 		if (can_drag_clip_instance || currentSong->xScroll[NAVIGATION_ARRANGEMENT] > 0 || offset == 1) {
-			// allow movement left if we if we can still either drag left or scroll left,
-			// or allow movement right if we're at zero for either dragging or scrolling position
+			// Allow movement left if we are above zero when either dragging or scrolling.
+			// This will always stop scrolling at zero, but dragging might let the clip instance go one
+			// square below zero if it is for example at a half step offset. But it will blink and then snap back to
+			// the last valid square (with the offset preserved), so that lets you know it's not exactly at zero.
+			// Also allows movement right so we don't get stuck at zero. The right side limit is in the function.
 			return horizontalScrollOneSquare(offset);
 		}
 		return ActionResult::DEALT_WITH;
@@ -2903,11 +2900,6 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 
 	int32_t new_x_scroll = currentSong->xScroll[NAVIGATION_ARRANGEMENT] + scroll_amount;
 
-	// Allow negative scroll when dragging, otherwise clamp to 0 minimum
-	if (!dragging_clip_instance && new_x_scroll < 0) {
-		new_x_scroll = 0;
-	}
-
 	// Apply maximum scroll limit
 	if (new_x_scroll > max_scroll) {
 		new_x_scroll = (max_scroll / static_cast<int32_t>(xZoom)) * static_cast<int32_t>(xZoom);
@@ -2922,6 +2914,7 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 		currentSong->xScroll[NAVIGATION_ARRANGEMENT] = new_x_scroll;
 
 		if (dragging_clip_instance) {
+			// might have to get shifted left or right to a valid position
 			putDraggedClipInstanceInNewPosition(outputsOnScreen[yPressedEffective]);
 		}
 
@@ -2939,7 +2932,14 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 			                                                ArrangementUpdateSource::SCROLL);
 		}
 	}
-	displayScrollPos();
+	// Display scroll position, but handle potential negative scroll values during dragging
+	if (dragging_clip_instance && currentSong->xScroll[NAVIGATION_ARRANGEMENT] < 0) {
+		// It can't handle negative values, so just display the 0 position (1:1:1)
+		displayNumberOfBarsAndBeats(0, kDisplayWidth, true, "");
+	}
+	else {
+		displayScrollPos();
+	}
 
 	return ActionResult::DEALT_WITH;
 }
@@ -2977,11 +2977,14 @@ ActionResult ArrangerView::verticalScrollOneSquare(int32_t direction) {
 
 	Output* output;
 
-	bool dragging_whole_row = isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION);
-	bool dragging_clip_instance = isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW);
+	// prevent dragging clip instance vertically, since it won't work anyways
+	if (isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW)) {
+		return ActionResult::DEALT_WITH;
+	}
 
-	// If a Output or ClipInstance selected for dragging, limit scrolling
-	if (dragging_whole_row || dragging_clip_instance) {
+	// If an output is selected for dragging by holding the audition pad,
+	// limit scrolling to within bounds of arrangement rows
+	if (isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION)) {
 		if (yPressedEffective != yPressedActual) {
 			return ActionResult::DEALT_WITH;
 		}
@@ -3004,12 +3007,10 @@ ActionResult ArrangerView::verticalScrollOneSquare(int32_t direction) {
 		}
 
 		actionLogger.deleteAllLogs();
-	}
 
-	currentSong->arrangementYScroll += direction;
+		currentSong->arrangementYScroll += direction;
 
-	// If an Output is selected, drag it against the scroll
-	if (dragging_whole_row) {
+		// If an Output is selected, drag it against the scroll
 
 		// Shift Output up
 		if (direction >= 0) {
@@ -3034,13 +3035,6 @@ ActionResult ArrangerView::verticalScrollOneSquare(int32_t direction) {
 			lower->next = output->next;
 			output->next = lower;
 		}
-	}
-
-	// Or if dragging ClipInstance vertically
-	else if (dragging_clip_instance) {
-		Output* newOutput = currentSong->getOutputFromIndex(yPressedEffective + currentSong->arrangementYScroll);
-
-		putDraggedClipInstanceInNewPosition(newOutput);
 	}
 
 	repopulateOutputsOnScreen();

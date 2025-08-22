@@ -92,6 +92,17 @@ using namespace gui;
 
 PLACE_SDRAM_BSS ArrangerView arrangerView{};
 
+ArrangerView::ArrangerView() {
+	doingAutoScrollNow = false;
+
+	lastInteractedOutputIndex = 0;
+	lastInteractedPos = -1;
+	lastInteractedSection = 0;
+	lastInteractedClipInstance = nullptr;
+
+	lastInteractedArrangementPos = -1;
+}
+
 void ArrangerView::renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas) {
 	if (stemExport.processStarted) {
 		if (stemExport.exportMixdown) {
@@ -584,69 +595,95 @@ bool ArrangerView::renderSidebar(uint32_t whichRows, RGB image[][kDisplayWidth +
 
 	for (int32_t i = 0; i < kDisplayHeight; i++) {
 		if (whichRows & (1 << i)) {
-			image[i][kDisplayWidth] = getMutePadColor(i);
-			image[i][kDisplayWidth + 1] = getAuditionPadColor(i);
+			drawMuteSquare(i, image[i]);
+			drawAuditionSquare(i, image[i]);
 		}
 	}
 	return true;
 }
 
-RGB ArrangerView::getMutePadColor(int32_t yDisplay) {
+void ArrangerView::drawMuteSquare(int32_t yDisplay, RGB thisImage[]) {
+	RGB& thisColour = thisImage[kDisplayWidth];
+
 	// If no Instrument, black
-	if (outputsOnScreen[yDisplay] == nullptr) {
-		return colours::black;
+	if (!outputsOnScreen[yDisplay]) {
+		thisColour = colours::black;
 	}
 
-	if (currentUIMode == UI_MODE_VIEWING_RECORD_ARMING && outputsOnScreen[yDisplay]->armedForRecording) {
+	else if (currentUIMode == UI_MODE_VIEWING_RECORD_ARMING && outputsOnScreen[yDisplay]->armedForRecording) {
 		if (blinkOn) {
 			if (outputsOnScreen[yDisplay]->wantsToBeginArrangementRecording()) {
-				return RGB(255, 1, 0);
+				thisColour = {255, 1, 0};
 			}
-			return RGB(60, 25, 15);
+			else {
+				thisColour = {60, 25, 15};
+			}
 		}
-		return colours::black;
+		else {
+			thisColour = colours::black;
+		}
 	}
 
 	// Soloing - blue
-	if (outputsOnScreen[yDisplay]->soloingInArrangementMode) {
-		return menu_item::soloColourMenu.getRGB();
+	else if (outputsOnScreen[yDisplay]->soloingInArrangementMode) {
+		thisColour = menu_item::soloColourMenu.getRGB();
 	}
 
 	// Or if not soloing...
-	RGB colour = outputsOnScreen[yDisplay]->mutedInArrangementMode
-	                 ? menu_item::mutedColourMenu.getRGB()   // Muted - yellow
-	                 : menu_item::activeColourMenu.getRGB(); // Otherwise, green
+	else {
 
-	if (currentSong->getAnyOutputsSoloingInArrangement()) {
-		colour = colour.dull();
+		// Muted - yellow
+		if (outputsOnScreen[yDisplay]->mutedInArrangementMode) {
+			thisColour = menu_item::mutedColourMenu.getRGB();
+		}
+
+		// Otherwise, green
+		else {
+			thisColour = menu_item::activeColourMenu.getRGB();
+		}
+
+		if (currentSong->getAnyOutputsSoloingInArrangement()) {
+			thisColour = thisColour.dull();
+		}
 	}
-	return colour;
 }
 
-RGB ArrangerView::getAuditionPadColor(int32_t yDisplay) {
-	RGB normal = (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION && yDisplay == yPressedEffective)
-	                 ? colours::red
-	                 : colours::black;
+void ArrangerView::drawAuditionSquare(int32_t yDisplay, RGB thisImage[]) {
+	RGB& thisColour = thisImage[kDisplayWidth + 1];
 
-	Output* output = outputsOnScreen[yDisplay];
+	if (view.midiLearnFlashOn) {
+		Output* output = outputsOnScreen[yDisplay];
 
-	if (!view.midiLearnFlashOn || output == nullptr || output->type == OutputType::AUDIO) {
-		return normal;
+		if (!output || output->type == OutputType::AUDIO) {
+			goto drawNormally;
+		}
+
+		Instrument* melodicInstrument = (Instrument*)output;
+
+		// If MIDI command already assigned...
+		if (melodicInstrument->midiInput.containsSomething()) {
+			thisColour = colours::midi_command;
+		}
+
+		// Or if not assigned but we're holding it down...
+		else if (view.thingPressedForMidiLearn == MidiLearn::INSTRUMENT_INPUT
+		         && view.learnedThing == &melodicInstrument->midiInput) {
+			thisColour = colours::red.dim();
+		}
+		else {
+			goto drawNormally;
+		}
 	}
 
-	auto* melodicInstrument = static_cast<Instrument*>(output);
-	// If MIDI command already assigned...
-	if (melodicInstrument->midiInput.containsSomething()) {
-		return colours::midi_command;
+	else {
+drawNormally:
+		if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION && yDisplay == yPressedEffective) {
+			thisColour = colours::red;
+		}
+		else {
+			thisColour = colours::black;
+		}
 	}
-
-	// Or if not assigned but we're holding it down...
-	if (view.thingPressedForMidiLearn == MidiLearn::INSTRUMENT_INPUT
-	    && view.learnedThing == &melodicInstrument->midiInput) {
-		return colours::red.dim();
-	}
-
-	return normal;
 }
 
 ModelStackWithNoteRow* ArrangerView::getNoteRowForAudition(ModelStack* modelStack, Kit* kit) {
@@ -949,7 +986,7 @@ ActionResult ArrangerView::handleEditPadAction(int32_t x, int32_t y, int32_t vel
 	Output* output = outputsOnScreen[y];
 
 	if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION) {
-		if (velocity != 0) {
+		if (velocity) {
 			// NAME shortcut
 			if (x == 11 && y == 5) {
 				Output* output = outputsOnScreen[yPressedEffective];
@@ -978,7 +1015,7 @@ ActionResult ArrangerView::handleStatusPadAction(int32_t y, int32_t velocity, UI
 		return ActionResult::DEALT_WITH;
 	}
 
-	if (velocity != 0) {
+	if (velocity) {
 		uint32_t rowsToRedraw = 1 << y;
 
 		switch (currentUIMode) {
@@ -1110,7 +1147,7 @@ ActionResult ArrangerView::handleAuditionPadAction(int32_t y, int32_t velocity, 
 	case UI_MODE_MIDI_LEARN:
 		if (output) {
 			if (output->type == OutputType::AUDIO) {
-				if (velocity != 0) {
+				if (velocity) {
 					view.endMIDILearn();
 					context_menu::audioInputSelector.audioOutput = (AudioOutput*)output;
 					context_menu::audioInputSelector.setupAndCheckAvailability();
@@ -1359,8 +1396,8 @@ void ArrangerView::createNewClipInstance(Output* output, int32_t x, int32_t y, i
 
 		// Or, normal case where not recording to Clip. If it actually finishes to our left, we can still go
 		// ahead and make a new Instance here
-		int32_t instanceEnd = clipInstance->pos + clipInstance->length;
-		if (instanceEnd <= squareStart) {
+		int32_t instance_end = clipInstance->pos + clipInstance->length;
+		if (instance_end <= squareStart) {
 			clipInstance = createClipInstance(output, y, squareStart);
 		}
 		else {
@@ -2117,6 +2154,7 @@ itsInvalid:
 	rememberInteractionWithClipInstance(yPressedEffective, clipInstance);
 
 	uiTimerManager.unsetTimer(TimerName::UI_SPECIFIC);
+
 	return true;
 }
 
@@ -2321,22 +2359,22 @@ squareStartPosSet:
 			// following squares
 			else {
 				// get the end of the clip instance
-				int32_t instanceEnd = clipInstance->pos + clipInstance->length;
+				int32_t instance_end = clipInstance->pos + clipInstance->length;
 				// for currently recording clips, get the playhead
 				if (output->recordingInArrangement && clipInstance->clip
 				    && clipInstance->clip->getCurrentlyRecordingLinearly()) {
-					instanceEnd = arrangement.getLivePos();
+					instance_end = arrangement.getLivePos();
 				}
 
 				// if this clip goes beyond just the first square
-				if (instanceEnd > squareStartPos) {
+				if (instance_end > squareStartPos) {
 
 					// See how many squares long
 					int32_t squareEnd = xDisplay;
 					do {
 						squareStartPos = squareEndPos[squareEnd];
 						squareEnd++;
-					} while (instanceEnd > squareStartPos && squareEnd < renderWidth
+					} while (instance_end > squareStartPos && squareEnd < renderWidth
 					         && searchTerms[squareEnd] - 1 == i);
 
 					// Draw either the blank, non-existent Clip if this Instance doesn't have one...
@@ -2826,6 +2864,11 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 				lastInteractedPos += scroll_amount;
 
 				uiNeedsRendering(this, 0xFFFFFFFF, 0);
+
+				if (display->haveOLED()) {
+					// shifting clip instances set with shift + horizontal encoder turn
+					sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main);
+				}
 			}
 		}
 	}
@@ -2836,28 +2879,12 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 		actionOnDepress = false;
 
 		// When dragging a clip instance, allow temporary negative scroll to continue leftward movement
-		// but stop it once the clip instance is at 0
-		bool can_drag_clip_instance = false;
-
-		if (isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW)) {
-
-			ClipInstance* pressed_instance =
-			    (ClipInstance*)pressedClipInstanceOutput->clipInstances.getElement(pressedClipInstanceIndex);
-			int32_t xMovement =
-			    currentSong->xScroll[NAVIGATION_ARRANGEMENT] - pressedClipInstanceXScrollWhenLastInValidPosition;
-			int32_t dragged_clip_position = pressed_instance->pos + xMovement;
-			can_drag_clip_instance = (dragged_clip_position > 0);
+		bool dragging_clip_instance = isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW);
+		if (!dragging_clip_instance && offset == -1 && currentSong->xScroll[NAVIGATION_ARRANGEMENT] == 0) {
+			return ActionResult::DEALT_WITH;
 		}
 
-		if (can_drag_clip_instance || currentSong->xScroll[NAVIGATION_ARRANGEMENT] > 0 || offset == 1) {
-			// Allow movement left if we are above zero when either dragging or scrolling.
-			// This will always stop scrolling at zero, but dragging might let the clip instance go one
-			// square below zero if it is for example at a half step offset. But it will blink and then snap back to
-			// the last valid square (with the offset preserved), so that lets you know it's not exactly at zero.
-			// Also allows movement right so we don't get stuck at zero. The right side limit is in the function.
-			return horizontalScrollOneSquare(offset);
-		}
-		return ActionResult::DEALT_WITH;
+		return horizontalScrollOneSquare(offset);
 	}
 
 	return ActionResult::DEALT_WITH;
@@ -2892,6 +2919,8 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 
 	if (new_x_scroll != currentSong->xScroll[NAVIGATION_ARRANGEMENT]) {
 
+		bool draggingClipInstance = isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW);
+
 		if (dragging_clip_instance && sdRoutineLock) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
@@ -2912,9 +2941,18 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 		// It can't handle negative values, so just display the 0 position (1:1:1)
 		displayNumberOfBarsAndBeats(0, kDisplayWidth, true, "");
 	}
-	else {
-		displayScrollPos();
+	displayScrollPos();
+	if (display->haveOLED()) {
+		if (dragging_clip_instance) {
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+			                                                ArrangementUpdateSource::DRAG_CLIP);
+		}
+		else {
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+			                                                ArrangementUpdateSource::SCROLL);
+		}
 	}
+	displayScrollPos();
 
 	return ActionResult::DEALT_WITH;
 }
@@ -3012,6 +3050,13 @@ ActionResult ArrangerView::verticalScrollOneSquare(int32_t direction) {
 		}
 	}
 
+	// Or if dragging ClipInstance vertically
+	else if (draggingClipInstance) {
+		Output* newOutput = currentSong->getOutputFromIndex(yPressedEffective + currentSong->arrangementYScroll);
+
+		putDraggedClipInstanceInNewPosition(newOutput);
+	}
+
 	repopulateOutputsOnScreen();
 
 	if (isUIModeActive(UI_MODE_VIEWING_RECORD_ARMING)) {
@@ -3028,10 +3073,17 @@ ActionResult ArrangerView::verticalEncoderAction(int32_t offset, bool inCardRout
 
 	if (Buttons::isButtonPressed(deluge::hid::button::Y_ENC)) {
 		if (currentUIMode == UI_MODE_NONE) {
-			currentSong->commandTranspose(offset);
+			if (Buttons::isShiftButtonPressed()) {
+				currentSong->adjustMasterTransposeInterval(offset);
+			}
+			else {
+				currentSong->transpose(offset);
+			}
 		}
+		return ActionResult::DEALT_WITH;
 	}
-	else if (isUIModeWithinRange(verticalEncoderUIModes)) {
+
+	if (isUIModeWithinRange(verticalEncoderUIModes)) {
 		if (inCardRoutine && !allowSomeUserActionsEvenWhenInCardRoutine) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE; // Allow sometimes.
 		}
@@ -3091,6 +3143,11 @@ void ArrangerView::graphicsRoutine() {
 
 	if (display->haveOLED()) {
 		sessionView.displayPotentialTempoChange(this);
+		if (currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION
+		    && currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW) {
+			// update pos and length display when it has a change during playback
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main);
+		}
 	}
 
 	if (PadLEDs::flashCursor != FLASH_CURSOR_OFF) {
@@ -3262,8 +3319,8 @@ uint32_t ArrangerView::getMaxLength() {
 
 		int32_t numElements = thisOutput->clipInstances.getNumElements();
 		if (numElements) {
-			ClipInstance* lastInstance = thisOutput->clipInstances.getElement(numElements - 1);
-			uint32_t endPos = static_cast<uint32_t>(lastInstance->pos + lastInstance->length);
+			ClipInstance* last_instance = thisOutput->clipInstances.getElement(numElements - 1);
+			uint32_t endPos = static_cast<uint32_t>(last_instance->pos + last_instance->length);
 			maxEndPos = std::max(maxEndPos, endPos);
 		}
 	}
@@ -3304,10 +3361,37 @@ void ArrangerView::scrollFinished() {
 	reassessWhetherDoingAutoScroll();
 }
 
+void ArrangerView::displayScrollPos() {
+	// When dragging a clip instance, show the clip position instead of scroll position
+	if (currentUIMode
+	    == UI_MODE_HOLDING_ARRANGEMENT_ROW) { // && pressedClipInstanceOutput && pressedClipInstanceIsInValidPosition) {
+		int32_t currentClipPosition = getDraggedClipPosition();
+		if (currentClipPosition >= 0) {
+			// Display the clip position in bars and beats
+			uint32_t quantization = currentSong->xZoom[NAVIGATION_ARRANGEMENT];
+			displayNumberOfBarsAndBeats(currentClipPosition, quantization, true, "FAR");
+			return;
+		}
+	}
+
+	// Default behavior - show scroll position
+	TimelineView::displayScrollPos();
+}
+
 void ArrangerView::notifyPlaybackBegun() {
 	mustRedrawTickSquares = true;
 	if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION) {
 		endAudition(outputsOnScreen[yPressedEffective], true);
+	}
+
+	// Initialize last_position_seconds based on where playback should start from
+	// Use the scroll position since that's where playback typically begins
+	if (display->haveOLED() && currentUIMode == UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON) {
+		sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main);
+	}
+	else {
+		last_position_seconds = ticksToSeconds(std::max(0L, currentSong->xScroll[NAVIGATION_ARRANGEMENT]),
+		                                       true); // Use rounding for startup
 	}
 }
 
@@ -3381,4 +3465,139 @@ void ArrangerView::requestRendering(UI* ui, uint32_t whichMainRows, uint32_t whi
 	else if (ui == &arrangerView) {
 		uiNeedsRendering(ui, whichMainRows, whichSideRows);
 	}
+}
+
+String ArrangerView::calculateArrangementPositionAndLength() {
+	bool changed = false;
+	int32_t new_arrangement_end_position = 0;
+
+	// Iterate through all outputs to find the rightmost clip instance
+	for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
+		// Skip muted outputs (currently doesn't recalculate when they are toggled on/off)
+		// if (output->mutedInArrangementMode) continue;
+
+		// Clip instances are stored in sequential order, so only need to check the last one
+		int32_t num_clip_instances = output->clipInstances.getNumElements();
+		if (num_clip_instances > 0) {
+			ClipInstance* last_instance = output->clipInstances.getElement(num_clip_instances - 1);
+			if (last_instance && last_instance->clip) {
+				int32_t instance_end = last_instance->pos + last_instance->length;
+				new_arrangement_end_position = std::max(new_arrangement_end_position, instance_end);
+			}
+		}
+	}
+
+	float tempo_BPM = playbackHandler.calculateBPM(playbackHandler.getTimePerInternalTickFloat());
+	if (new_arrangement_end_position != last_arrangement_end_position || tempo_BPM != last_tempo_BPM) {
+		if (new_arrangement_end_position != last_arrangement_end_position) {
+			last_arrangement_end_position = new_arrangement_end_position;
+		}
+		else {
+			last_tempo_BPM = tempo_BPM;
+		}
+		total_time_string = secondsToTimeString(ticksToSeconds(new_arrangement_end_position));
+		changed = true;
+	}
+
+	int32_t current_position_ticks;
+	int32_t current_position_seconds;
+
+	// When dragging a clip instance, show the clip position instead of playback position
+	if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) {
+		current_position_ticks = getDraggedClipPosition();
+		current_position_seconds = ticksToSeconds(current_position_ticks, false);
+		if (current_position_seconds != last_position_seconds) {
+			last_position_seconds = current_position_seconds;
+			changed = true;
+		}
+	}
+	else if (arrangement.hasPlaybackActive()) {
+		current_position_ticks = arrangement.getLivePos();
+		current_position_seconds = ticksToSeconds(current_position_ticks, false);
+		if (current_position_seconds > last_position_seconds
+		    || (current_position_seconds < last_position_seconds
+		        && currentUIMode == UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON)) {
+			// we set the last_position_seconds when playback started, and we're always going to count up.
+			// But we also need to handle the case when playback is jumped back to zero by holding horizontal encoder
+			last_position_seconds = current_position_seconds;
+			changed = true;
+		}
+	}
+	else {
+		// get the time for the current view position (i.e. the left side of the screen)
+		current_position_ticks = std::max(0L, currentSong->xScroll[NAVIGATION_ARRANGEMENT]);
+		current_position_seconds = ticksToSeconds(current_position_ticks);
+		if (current_position_seconds != last_position_seconds) {
+			last_position_seconds = current_position_seconds;
+			changed = true;
+		}
+	}
+
+	if (changed == false) {
+		return {};
+	}
+	// Create display string in format "current/total"
+	String display_time_string = secondsToTimeString(last_position_seconds);
+	display_time_string.concatenate("/");
+	display_time_string.concatenate(total_time_string.get());
+	// D_PRINTLN("ticks %d, length %s", current_position_ticks, display_time_string.get());
+	last_arrangement_time_display_string = display_time_string;
+	deluge::hid::display::OLED::markChanged();
+	return display_time_string;
+}
+
+// Helper function to convert ticks to seconds
+int32_t ArrangerView::ticksToSeconds(int32_t ticks, bool rounding) {
+
+	if (ticks == 0) {
+		return 0;
+	}
+
+	// Convert internal ticks to seconds, at 44.1kHz
+	float time_per_internal_tick = currentSong->getTimePerTimerTickFloat();
+	float total_seconds = (ticks * time_per_internal_tick) / 44100.0f;
+	if (rounding) {
+		return static_cast<int32_t>(std::roundf(total_seconds));
+	}
+	else {
+		return static_cast<int32_t>(total_seconds); // Truncate during playback
+	}
+}
+
+// Helper function to convert ticks to MM:SS time string format
+String ArrangerView::secondsToTimeString(int32_t seconds) {
+	String time_string;
+
+	if (seconds == 0) {
+		time_string.set("0:00");
+		return time_string;
+	}
+
+	// Convert to minutes:seconds
+	int32_t minutes = seconds / 60;
+	int32_t seconds_remainder = seconds % 60;
+
+	// Format as MM:SS
+	time_string.concatenateInt(minutes);
+	time_string.concatenate(":");
+	if (seconds_remainder < 10)
+		time_string.concatenate("0");
+	time_string.concatenateInt(seconds_remainder);
+
+	return time_string;
+}
+
+// Helper function to get the current position of a dragged clip instance
+int32_t ArrangerView::getDraggedClipPosition() {
+	if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW && pressedClipInstanceOutput) {
+		ClipInstance* pressedInstance =
+		    (ClipInstance*)pressedClipInstanceOutput->clipInstances.getElement(pressedClipInstanceIndex);
+		if (pressedInstance) {
+			// Calculate current clip position: original position + movement from dragging
+			int32_t xMovement =
+			    currentSong->xScroll[NAVIGATION_ARRANGEMENT] - pressedClipInstanceXScrollWhenLastInValidPosition;
+			return pressedInstance->pos + xMovement;
+		}
+	}
+	return 0;
 }

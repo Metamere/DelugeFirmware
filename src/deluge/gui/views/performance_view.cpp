@@ -342,15 +342,20 @@ void PerformanceView::graphicsRoutine() {
 	     || currentUIMode == UI_MODE_IMPLODE_ANIMATION || currentSong->lastClipInstanceEnteredStartPos != -1
 	     || !session.launchEventAtSwungTickCount);
 
-	int32_t sixteenthNotesRemaining = 0;
+	int32_t sixteenth_notes_remaining = 0;
 
 	if (!reallyNoTickSquare) {
-		sixteenthNotesRemaining = sessionView.displayLoopsRemainingPopup();
+		if (display->haveOLED()) {
+			sixteenth_notes_remaining = sessionView.displayLoopsRemaining();
+		}
+		else {
+			sixteenth_notes_remaining = sessionView.displayLoopsRemainingPopup();
+		}
 	}
 
 	// potentially render a playhead that displays
 	// when the next clip launch event is expected occur (e.g. when clips will start or end)
-	sessionView.potentiallyRenderClipLaunchPlayhead(reallyNoTickSquare, sixteenthNotesRemaining);
+	sessionView.potentiallyRenderClipLaunchPlayhead(reallyNoTickSquare, sixteenth_notes_remaining);
 }
 
 ActionResult PerformanceView::timerCallback() {

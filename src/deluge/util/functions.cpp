@@ -1916,7 +1916,7 @@ int32_t howMuchMoreMagnitude(uint32_t to, uint32_t from) {
 
 void noteCodeToString(int32_t noteCode, char* buffer, int32_t* getLengthWithoutDot, bool appendOctaveNo) {
 	char* thisChar = buffer;
-	int32_t octave = (noteCode) / 12 - 2;
+	int32_t octave = (noteCode) / 12 - 1; // -1 to set the range to the more common C-1 to G9 range from MIDI standard
 	int32_t noteCodeWithinOctave = (uint16_t)(noteCode + 120) % (uint8_t)12;
 
 	bool useSharps = FlashStorage::defaultUseSharps;
@@ -2102,13 +2102,13 @@ void getNoteLengthNameFromMagnitude(StringBuf& noteLengthBuf, int32_t magnitude,
 			noteLengthBuf.appendInt(numBars);
 			if (clarifyPerColumn) {
 				if (numBars == 1) {
-					noteLengthBuf.append(" bar (per column)");
+					noteLengthBuf.append(" bar/pad");
 				}
-				else if (numBars < 1000) {
-					noteLengthBuf.append(" bars (per column)");
+				else if (numBars < 100) {
+					noteLengthBuf.append(" bars/pad");
 				}
 				else {
-					noteLengthBuf.append(" bars / column");
+					noteLengthBuf.append(" b/p");
 				}
 			}
 			else {

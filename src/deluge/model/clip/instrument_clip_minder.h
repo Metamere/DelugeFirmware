@@ -43,7 +43,7 @@ public:
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine);
 	void calculateDefaultRootNote();
 	void drawActualNoteCode(int16_t noteCode);
-	void cycleThroughScales();
+	void cycleThroughScales(int32_t offset = 1);
 	bool setScale(Scale newScale);
 	void displayScaleName(Scale scale);
 	void displayCurrentScaleName();

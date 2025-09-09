@@ -151,8 +151,8 @@ public:
 	// Arrangement length calculation
 	ArrangementDisplayResult calculateArrangementPositionAndLength(ArrangementUpdateSource update_source,
 	                                                               bool display_time = true);
-	int32_t ticksToSeconds(int32_t ticks, bool rounding = true);
-	String secondsToTimeString(int32_t seconds, bool force_hours_format = false);
+	int32_t arrangementTicksToSeconds(int32_t ticks, bool rounding = true);
+	// String secondsToTimeString(int32_t seconds, bool force_hours_format = false);
 	int32_t getDraggedClipPosition();
 
 private:
@@ -199,20 +199,8 @@ private:
 	void createNewClipForClipInstance(Output* output, ClipInstance* clipInstance);
 	void recordEditPadPress(Output* output, ClipInstance* clipInstance, int32_t x, int32_t y, int32_t xScroll);
 
-	// Cache for arrangement length calculation and display
-	int32_t cached_progress_bar_width{0};
-	int32_t cached_screen_indicator_width{0}; // How many pixels of progress bar represent one screen width
-	int32_t cached_scroll_indicator_position{-1};
-
-	int32_t cached_current_position = 0;
-	int32_t cached_current_position_seconds = 0;
-	int32_t playback_position = 0;
-	int32_t playback_position_seconds = 0;
+	// For arrangement length calculation and display
 	int32_t cached_playback_position_seconds = 0;
-	int32_t cached_end_position{0};
-	int32_t cached_end_position_seconds = 0;
-	uint32_t cached_bar_update_tick = 0;
-	bool delay_playback_update = false;
 	bool first_press = false;
 	bool jump_to_start = false;
 	bool has_tempo_automation{false};

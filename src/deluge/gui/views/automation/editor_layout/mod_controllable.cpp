@@ -251,6 +251,8 @@ void AutomationEditorLayoutModControllable::renderAutomationUnipolarSquare(
 void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
     deluge::hid::display::oled_canvas::Canvas& canvas, Clip* clip, OutputType outputType, int32_t knobPosLeft,
     int32_t knobPosRight) {
+
+	static int32_t update_count = 0;
 	// display parameter name
 	DEF_STACK_STRING_BUF(parameterName, 30);
 	getAutomationParameterName(clip, outputType, parameterName);
@@ -262,32 +264,8 @@ void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
 #endif
 	canvas.drawStringCentredShrinkIfNecessary(parameterName.c_str(), yPos, kTextSpacingX, kTextSpacingY);
 
-	// display parameter value
-	yPos = yPos + 16;
-
-	if (knobPosRight != kNoSelection) {
-		char bufferLeft[10];
-		bufferLeft[0] = 'L';
-		bufferLeft[1] = ':';
-		bufferLeft[2] = ' ';
-		intToString(knobPosLeft, &bufferLeft[3]);
-		canvas.drawString(bufferLeft, 0, yPos, kTextSpacingX, kTextSpacingY);
-
-		char bufferRight[10];
-		bufferRight[0] = 'R';
-		bufferRight[1] = ':';
-		bufferRight[2] = ' ';
-		intToString(knobPosRight, &bufferRight[3]);
-		canvas.drawStringAlignRight(bufferRight, yPos, kTextSpacingX, kTextSpacingY);
-	}
-	else {
-		char buffer[5];
-		intToString(knobPosLeft, buffer);
-		canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
-	}
-
 	// display automation status
-	yPos = yPos + 13;
+	yPos = yPos + 12;
 
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithAutoParam* modelStackWithParam = nullptr;
@@ -318,6 +296,36 @@ void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
 	}
 
 	canvas.drawStringCentred(isAutomated, yPos, kTextSpacingX, kTextSpacingY);
+
+	// display parameter value
+#if OLED_MAIN_HEIGHT_PIXELS == 64
+	yPos = OLED_MAIN_TOPMOST_PIXEL + 12 + 12 + 14;
+#else
+	yPos = OLED_MAIN_TOPMOST_PIXEL + 3 + 12 + 14;
+#endif
+
+	if (knobPosRight != kNoSelection) {
+		char bufferLeft[10];
+		bufferLeft[0] = 'L';
+		bufferLeft[1] = ':';
+		bufferLeft[2] = ' ';
+		intToString(knobPosLeft, &bufferLeft[3]);
+		canvas.drawString(bufferLeft, 0, yPos, kTextSpacingX, kTextSpacingY);
+
+		char bufferRight[10];
+		bufferRight[0] = 'R';
+		bufferRight[1] = ':';
+		bufferRight[2] = ' ';
+		intToString(knobPosRight, &bufferRight[3]);
+		canvas.drawStringAlignRight(bufferRight, yPos, kTextSpacingX, kTextSpacingY);
+	}
+	else {
+		char buffer[5];
+		intToString(knobPosLeft, buffer);
+		canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
+	}
+	update_count++;
+	D_PRINTLN("updates: %d", update_count);
 }
 
 void AutomationEditorLayoutModControllable::renderAutomationEditorDisplay7SEG(Clip* clip, OutputType outputType,

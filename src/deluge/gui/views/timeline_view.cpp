@@ -19,6 +19,8 @@
 #include "definitions_cxx.hpp"
 #include "extern.h"
 #include "gui/ui/load/load_pattern_ui.h"
+#include "gui/views/arranger_view.h"
+#include "gui/views/session_view.h"
 #include "gui/views/view.h"
 #include "hid/button.h"
 #include "hid/buttons.h"
@@ -69,7 +71,7 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 	if (b == X_ENC) {
 		if (on) {
 			// Show current zoom level
-			if (isNoUIModeActive()) {
+			if (isNoUIModeActive() && getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
 				displayZoomLevel();
 			}
 
@@ -119,12 +121,32 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 	return ActionResult::DEALT_WITH;
 }
 
-void TimelineView::displayZoomLevel(bool justPopup) {
+void TimelineView::displayZoomLevel(bool just_popup, bool clear_area) {
 	DEF_STACK_STRING_BUF(text, 30);
 	currentSong->getNoteLengthName(text, currentSong->xZoom[getNavSysId()], "-notes", true);
 
-	// display->displayPopup(text.data(), justPopup ? 3 : 0, true);
-	static_cast<deluge::hid::display::OLED*>(display)->displayNotification(text.data(), std::nullopt, true);
+	if (display->haveOLED() && !just_popup) {
+		if (getRootUI() == &arrangerView || getRootUI() == &sessionView) {
+			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+
+			const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+
+			if (clear_area) {
+				const int32_t x_margin = kTextSpacingX * 5;
+				canvas.clearAreaExact(x_margin, yPos, OLED_MAIN_WIDTH_PIXELS - 1 - x_margin, yPos + kTextSpacingY);
+			}
+
+			canvas.drawStringCentred(text.data(), yPos, kTextSpacingX, kTextSpacingY);
+			deluge::hid::display::OLED::markChanged();
+		}
+		else {
+			static_cast<deluge::hid::display::OLED*>(display)->displayNotification(text.data(), std::nullopt, true,
+			                                                                       true, false);
+		}
+	}
+	else {
+		display->displayPopup(text.data(), just_popup ? 3 : 0, true);
+	}
 }
 
 bool horizontalEncoderActionLock = false;
@@ -258,8 +280,8 @@ void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantiz
 
 	if (display->haveOLED()) {
 		char buffer[15];
-		sprintf(buffer, "%d : %d : %d", whichBar, whichBeat, whichSubBeat);
-		static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true);
+		sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
+		static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true, true, false);
 	}
 	else {
 		char text[5];

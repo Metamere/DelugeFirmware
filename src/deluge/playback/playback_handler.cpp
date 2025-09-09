@@ -2310,32 +2310,28 @@ float PlaybackHandler::calculateBPM(float timePerInternalTick) {
 }
 
 void PlaybackHandler::getTempoStringForOLED(float tempoBPM, StringBuf& buffer, bool automated) {
-	if (tempoBPM >= 9999.5) {
-		buffer.append("FAST");
+	int32_t min_decimal_places = 0;
+	int32_t max_decimal_places;
+
+	if (tempoBPM >= 999) {
+		max_decimal_places = 0;
+	}
+	else if (tempoBPM > 40.0) {
+		max_decimal_places = 1;
+	}
+	else if (tempoBPM >= 10.0) {
+		min_decimal_places = 1;
+		max_decimal_places = 1;
+	}
+	else if (tempoBPM >= 0.1) {
+		min_decimal_places = 2;
+		max_decimal_places = 2;
 	}
 	else {
-		int32_t min_decimal_places = 0;
-		int32_t max_decimal_places = 0;
-		if (tempoBPM >= 240.0) {
-			max_decimal_places = 1;
-		}
-		else if (tempoBPM > 40.0) {
-			max_decimal_places = 1;
-		}
-		else if (tempoBPM >= 10.0) {
-			min_decimal_places = 1;
-			max_decimal_places = 1;
-		}
-		else if (tempoBPM >= 0.1) {
-			min_decimal_places = 2;
-			max_decimal_places = 2;
-		}
-		else {
-			min_decimal_places = 3;
-			max_decimal_places = 3;
-		}
-		buffer.appendFloat(tempoBPM, min_decimal_places, max_decimal_places);
+		min_decimal_places = 3;
+		max_decimal_places = 3;
 	}
+	buffer.appendFloat(tempoBPM, min_decimal_places, max_decimal_places);
 }
 
 void PlaybackHandler::displayTempoBPM(float tempoBPM) {

@@ -406,13 +406,8 @@ bool AutomationView::opened() {
 	return true;
 }
 
-// Global flag for render optimization reset
-static bool automation_first_render = true;
-
 void AutomationView::initializeView() {
 	navSysId = getNavSysId();
-	automation_first_render = true;
-	D_PRINTLN("initialize");
 
 	if (!midiCCShortcutsLoaded) {
 		initMIDICCShortcutsForAutomation();
@@ -475,6 +470,7 @@ void AutomationView::initializeView() {
 
 // Initializes some stuff to begin a new editing session
 void AutomationView::focusRegained() {
+	automation_first_render = true;
 	if (onArrangerView) {
 		indicator_leds::setLedState(IndicatorLED::BACK, false);
 		indicator_leds::setLedState(IndicatorLED::KEYBOARD, false);
@@ -547,6 +543,7 @@ void AutomationView::openedInBackground() {
 
 			instrumentClipView.recalculateColours();
 		}
+		automation_first_render = true;
 	}
 
 	bool renderingToStore = (currentUIMode == UI_MODE_ANIMATION_FADE);
@@ -962,8 +959,6 @@ This function replaces the two functions that were previously called:
 
 DisplayParameterValue
 DisplayParameterName */
-// Debug: Track automation display update frequency
-// static uint32_t automationDisplayUpdateCount = 0;
 
 void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bool modEncoderAction) {
 	// don't refresh display if we're not current in the automation view UI
@@ -974,44 +969,19 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	// Cache last displayed values to avoid unnecessary screen updates
 	static int32_t last_knob_pos_left = INT32_MIN;
 	static int32_t last_knob_pos_right = INT32_MIN;
+	static int32_t last_display_value = INT32_MIN;
 	static bool last_mod_encoder_action = false;
 	static uint32_t last_actual_render_time = 0;
 
-	// Timing constants for display throttling (in AudioEngine sample units)
-	const uint32_t MIN_UPDATE_INTERVAL = 2000; // ~45ms at 44.1kHz (minimum perceptible update frequency)
-
-	uint32_t current_time = AudioEngine::audioSampleTimer;
-
-	// Check if values have actually changed
-	bool values_changed = (knobPosLeft != last_knob_pos_left || knobPosRight != last_knob_pos_right
-	                       || modEncoderAction != last_mod_encoder_action);
+	const uint32_t current_time = AudioEngine::audioSampleTimer;
 
 	// Check if enough time has passed since the last update for visual perception
-	uint32_t time_since_last_render = current_time - last_actual_render_time;
-	bool min_time_elapsed = (time_since_last_render >= MIN_UPDATE_INTERVAL);
+	const uint32_t time_since_last_render = current_time - last_actual_render_time;
+	const bool min_time_elapsed = (time_since_last_render > MIN_UPDATE_INTERVAL);
 
-	// Add debug to see who is calling this function
-	D_PRINTLN("renderDisplay() called - automation_first_render=%s, values_changed=%s, min_time_elapsed=%s",
-	          automation_first_render ? "true" : "false", values_changed ? "true" : "false",
-	          min_time_elapsed ? "true" : "false");
-
-	// Only skip rendering if this is NOT the first render AND no values changed AND not enough time has elapsed
-	if (!automation_first_render && !values_changed && !min_time_elapsed) {
+	if (!min_time_elapsed && !automation_first_render) {
 		return;
 	}
-
-	// Mark that we've done the first render
-	automation_first_render = false;
-
-	// Debug: Log when we actually render after optimization checks
-	// automationDisplayUpdateCount++;
-	// D_PRINTLN("renderDisplay #%d: ACTUALLY RENDERING (passed optimization checks)", automationDisplayUpdateCount);
-
-	// Update cached values
-	last_knob_pos_left = knobPosLeft;
-	last_knob_pos_right = knobPosRight;
-	last_mod_encoder_action = modEncoderAction;
-	last_actual_render_time = current_time;
 
 	Clip* clip = getCurrentClip();
 	Output* output = clip->output;
@@ -1037,19 +1007,34 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 		}
 	}
 
-	// OLED Display
+	// Check whether the values to be displayed have changed
+	bool values_changed = (knobPosLeft != last_knob_pos_left || knobPosRight != last_knob_pos_right
+	                       || (display->have7SEG() && modEncoderAction != last_mod_encoder_action));
+
+	if (!values_changed && !automation_first_render && automationParamType == AutomationParamType::PER_SOUND) {
+		return;
+	}
+
+	// Update cached values
+	last_knob_pos_left = knobPosLeft;
+	last_knob_pos_right = knobPosRight;
+	last_mod_encoder_action = modEncoderAction;
+	last_actual_render_time = current_time;
+
 	if (display->haveOLED()) {
 		renderDisplayOLED(clip, output, outputType, knobPosLeft, knobPosRight);
 	}
-	// 7SEG Display
 	else {
 		renderDisplay7SEG(clip, output, outputType, knobPosLeft, modEncoderAction);
 	}
+
+	automation_first_render = false;
 }
 
 void AutomationView::renderDisplayOLED(Clip* clip, Output* output, OutputType outputType, int32_t knobPosLeft,
                                        int32_t knobPosRight) {
 	deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+
 	hid::display::OLED::clearMainImage();
 
 	if (onAutomationOverview()) {
@@ -1557,7 +1542,7 @@ bool AutomationView::handleHorizontalEncoderButtonAction(bool on, bool isAudioCl
 				instrumentClipView.doubleClipLengthAction();
 			}
 			else {
-				displayZoomLevel();
+				displayZoomLevel(true);
 			}
 		}
 		// Whether or not we did the "multiply" action above, we need to be in this UI mode, e.g. for
@@ -2031,6 +2016,7 @@ void AutomationView::handleParameterSelection(Clip* clip, Output* output, Output
 	}
 
 	resetParameterShortcutBlinking();
+	automation_first_render = true;
 	if (inNoteEditor()) {
 		automationParamType = AutomationParamType::PER_SOUND;
 		instrumentClipView.resetSelectedNoteRowBlinking();
@@ -3065,6 +3051,7 @@ void AutomationView::notifyPlaybackBegun() {
 void AutomationView::initParameterSelection(bool updateDisplay) {
 	resetShortcutBlinking();
 	initPadSelection();
+	automation_first_render = true;
 
 	if (onArrangerView) {
 		currentSong->lastSelectedParamID = kNoSelection;

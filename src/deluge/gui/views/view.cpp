@@ -2054,6 +2054,7 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 	// hook to render display for OLED and 7SEG when in Automation View
 	if (getCurrentUI() == &automationView && !isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION)) {
 		if (automationView.inAutomationEditor()) {
+			automationView.automation_first_render = true;
 			automationView.displayAutomation(true, !display->have7SEG());
 		}
 		else {
@@ -2066,16 +2067,18 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 		deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 		hid::display::OLED::clearMainImage();
 
-		char const* outputTypeText = getOutputTypeName(outputType, channel);
+		if (!(getCurrentUI() == &arrangerView && isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW))) {
+
+			char const* outputTypeText = getOutputTypeName(outputType, channel);
 
 #if OLED_MAIN_HEIGHT_PIXELS == 64
-		int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 31;
 #else
-		int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 18;
 #endif
-		canvas.drawStringCentred(outputTypeText, yPos, kTextSpacingX, kTextSpacingY);
+			canvas.drawStringCentred(outputTypeText, yPos, kTextSpacingX, kTextSpacingY);
+		}
 	}
-
 	char buffer[12];
 	char const* nameToDraw = nullptr;
 
@@ -2085,9 +2088,9 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 oledDrawString:
 			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 #if OLED_MAIN_HEIGHT_PIXELS == 64
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
 #else
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 19;
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
 #endif
 
 			int32_t stringLengthPixels = canvas.getStringWidthInPixels(nameToDraw, kTextTitleSizeY);
@@ -2114,7 +2117,7 @@ oledDrawString:
 					info.append(": ");
 					info.append(clip->name.get());
 				}
-				yPos = yPos + 13;
+				yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
 				canvas.drawStringCentred(info.data(), yPos, kTextSpacingX, kTextSpacingY);
 				deluge::hid::display::OLED::setupSideScroller(1, info.data(), 0, OLED_MAIN_WIDTH_PIXELS, yPos,
 				                                              yPos + kTextSpacingY, kTextSpacingX, kTextSpacingY,
@@ -2797,7 +2800,7 @@ void View::flashPlayRoutine() {
 }
 
 void View::flashPlayEnable() {
-	uiTimerManager.setTimer(TimerName::PLAY_ENABLE_FLASH, kFastFlashTime);
+	uiTimerManager.setTimer(TimerName::PLAY_ENABLE_FLASH, kFlashTime);
 }
 
 void View::flashPlayDisable() {

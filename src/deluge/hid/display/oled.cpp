@@ -669,7 +669,7 @@ void OLED::removeWorkingAnimation() {
 }
 
 void OLED::displayNotification(std::string_view paramTitle, std::optional<std::string_view> paramValue,
-                               bool alignment_bottom) {
+                               bool alignment_bottom, bool centered, bool full_width) {
 	DEF_STACK_STRING_BUF(titleBuf, 25);
 	titleBuf.append(paramTitle);
 
@@ -706,21 +706,38 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
 		}
 	}
 
-	// Fix bottom alignment to prevent out-of-bounds access
-	// Move bottom notifications higher to test positioning
 	int32_t popupHeight = kTextSpacingY + 2; // 11 pixels total
-	// the - 2 prevents it from going out of bounds below, which will corrupt the bounds and cause the popup to
-	// disappear if the screen is updated.
-	int32_t startY = alignment_bottom ? OLED_MAIN_HEIGHT_PIXELS - popupHeight - 2 : OLED_MAIN_TOPMOST_PIXEL;
-
-	setupPopup(PopupType::NOTIFICATION, OLED_MAIN_WIDTH_PIXELS - 1, popupHeight, 0, startY);
+	int32_t startY;
+	int32_t popup_width;
+	if (alignment_bottom) {
+		// the - 2 prevents it from going out of bounds below, which will corrupt the bounds and cause the popup to
+		// disappear if the screen is updated.
+		startY = OLED_MAIN_HEIGHT_PIXELS - popupHeight - 2;
+		if (centered && !full_width) {
+			popup_width = OLED_MAIN_WIDTH_PIXELS - 1 - kTextSpacingX * 10; // leave room for stuff on left and right
+			setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, kTextSpacingX * 5, startY);
+		}
+		else {
+			popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
+			setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, 0, startY);
+		}
+	}
+	else {
+		startY = OLED_MAIN_TOPMOST_PIXEL;
+		popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
+		setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, 0, startY);
+	}
 
 	// Adjust text Y position based on the popup position
 	int32_t textY = popupMinY + 1;
 
 	if (alignment_bottom) {
-		popup.drawHorizontalLine(popupMinY + 1, 0, OLED_MAIN_WIDTH_PIXELS - 1);
-		popup.drawStringCentred(titleBuf.data(), textY + 1, kTextSpacingX, kTextSpacingY);
+		if (centered) {
+			popup.drawStringCentred(titleBuf.data(), textY + 1, kTextSpacingX, kTextSpacingY);
+		}
+		else {
+			popup.drawString(titleBuf.data(), 2, textY, kTextSpacingX, kTextSpacingY);
+		}
 	}
 	else if (FlashStorage::accessibilityMenuHighlighting != MenuHighlighting::NO_INVERSION) {
 		// Draw the title and value

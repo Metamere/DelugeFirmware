@@ -619,8 +619,8 @@ void InstrumentClipMinder::drawActualNoteCode(int16_t noteCode) {
 	}
 }
 
-void InstrumentClipMinder::cycleThroughScales() {
-	displayScaleName(currentSong->cycleThroughScales());
+void InstrumentClipMinder::cycleThroughScales(int32_t offset) {
+	displayScaleName(currentSong->cycleThroughScales(offset));
 }
 
 // Returns if the scale could be changed or not

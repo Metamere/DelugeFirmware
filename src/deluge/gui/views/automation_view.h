@@ -87,6 +87,7 @@ public:
 	void renderDisplay(int32_t knobPosLeft = kNoSelection, int32_t knobPosRight = kNoSelection,
 	                   bool modEncoderAction = false);
 	void displayAutomation(bool padSelected = false, bool updateDisplay = true);
+	bool automation_first_render = true;
 
 	void renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas) override {
 		InstrumentClipMinder::renderOLED(canvas);
@@ -254,6 +255,8 @@ private:
 
 	bool probabilityChanged;
 	uint32_t timeSelectKnobLastReleased;
+	// Timing constant for display throttling (in AudioEngine sample units)
+	const uint32_t MIN_UPDATE_INTERVAL = 2000; // ~45ms at 44.1kHz (minimum perceptible update frequency)
 };
 
 extern AutomationView automationView;

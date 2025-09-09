@@ -184,7 +184,8 @@ public:
 
 	// Horizontal menus
 	void displayNotification(std::string_view paramTitle, std::optional<std::string_view> paramValue,
-	                         bool bottom_aligned = false);
+	                         // centered and full_width are only applicable for bottom aligned, for now.
+	                         bool bottom_aligned = false, bool centered = false, bool full_width = true);
 	void displayNotification(std::string_view paramTitle, std::optional<std::string_view> paramValue) override {
 		displayNotification(paramTitle, paramValue, false);
 	}

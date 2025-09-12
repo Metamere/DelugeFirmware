@@ -791,7 +791,6 @@ void LoadSongUI::selectEncoderAction(int8_t offset) {
 		}
 		if (display->haveOLED()) {
 			renderUIsForOled();
-			sessionView.displayLoopsRemaining();
 		}
 		else {
 			sessionView.redrawNumericDisplay();

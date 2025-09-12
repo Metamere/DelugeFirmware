@@ -149,11 +149,10 @@ public:
 	void requestRendering(UI* ui, uint32_t whichMainRows = 0xFFFFFFFF, uint32_t whichSideRows = 0xFFFFFFFF);
 
 	// Arrangement length calculation
-	ArrangementDisplayResult calculateArrangementPositionAndLength(ArrangementUpdateSource update_source,
-	                                                               bool display_time = true);
+	ArrangementDisplayResult calculateArrangementPositionAndLength(ArrangementUpdateSource update_source);
 	int32_t arrangementTicksToSeconds(int32_t ticks, bool rounding = true);
-	// String secondsToTimeString(int32_t seconds, bool force_hours_format = false);
 	int32_t getDraggedClipPosition();
+	int32_t cached_playback_position_seconds = 0; // For arrangement playback time display
 
 private:
 	RGB getMutePadColor(int32_t yDisplay);
@@ -199,11 +198,10 @@ private:
 	void createNewClipForClipInstance(Output* output, ClipInstance* clipInstance);
 	void recordEditPadPress(Output* output, ClipInstance* clipInstance, int32_t x, int32_t y, int32_t xScroll);
 
-	// For arrangement length calculation and display
-	int32_t cached_playback_position_seconds = 0;
+	// For arrangement length and time display
 	bool first_press = false;
 	bool jump_to_start = false;
-	bool has_tempo_automation{false};
+	bool has_tempo_automation = false;
 };
 
 extern ArrangerView arrangerView;

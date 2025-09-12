@@ -137,6 +137,9 @@ void TimelineView::displayZoomLevel(bool just_popup, bool clear_area) {
 			}
 
 			canvas.drawStringCentred(text.data(), yPos, kTextSpacingX, kTextSpacingY);
+			if (display->hasPopupOfType(PopupType::NOTIFICATION)) {
+				display->cancelPopup();
+			}
 			deluge::hid::display::OLED::markChanged();
 		}
 		else {

@@ -61,9 +61,9 @@ oled_canvas::Canvas OLED::console;
 
 bool OLED::needsSending;
 
-int32_t working_animation_count;
-bool started_animation;
-bool loading;
+static int32_t working_animation_count;
+static bool started_animation;
+static bool loading;
 
 int32_t sideScrollerDirection; // 0 means none active
 
@@ -119,9 +119,6 @@ void moveAreaUpCrude(int32_t minX, int32_t minY, int32_t maxX, int32_t maxY, int
 int32_t oledPopupWidth = 0; // If 0, means popup isn't present / active.
 int32_t popupHeight;
 PopupType popupType = PopupType::NONE;
-
-// Debug counter to track excessive notification updates
-// int32_t notificationUpdateCount = 0;
 
 int32_t popupMinX;
 int32_t popupMaxX;
@@ -283,7 +280,6 @@ int32_t OLED::setupConsole(int32_t height) {
 }
 
 void OLED::removePopup() {
-	// notificationUpdateCount = 0;
 	oledPopupWidth = 0;
 	popupType = PopupType::NONE;
 	uiTimerManager.unsetTimer(TimerName::DISPLAY);
@@ -584,32 +580,48 @@ void OLED::popupText(std::string_view text, bool persistent, PopupType type) {
 	}
 }
 
+// Draws a cyclic animation while the Deluge is working on a loading or saving operation
 void updateWorkingAnimation() {
-	deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
-
-	int32_t w1 = 5;          // spacing between rectangles
-	int32_t w2 = 5;          // width of animated portion of rectangle
-	int32_t h = 8;           // height of rectangle
+	const int32_t w1 = 5;    // spacing between rectangles
+	const int32_t w2 = 5;    // width of animated portion of rectangle
+	const int32_t h = 8;     // height of rectangle
 	int32_t offset = w2 - 2; // causes shifting lines to overlap by 2 pixels
-	int32_t x_max = OLED_MAIN_WIDTH_PIXELS - 1;
-	int32_t x_min = x_max - (w1 + w2 * 2);
-	int32_t x2 = x_max - w2;                  // starting position of right rectangle
-	int32_t y1 = OLED_MAIN_TOPMOST_PIXEL + 2; // top of rectangles
-	int32_t y2 = y1 + h - 1;                  // bottom of rectangles
-	int32_t h2;                               // height of animated portion (will increase over time)
-	// position of left side of starting stack that will be shifted over
-	int32_t x_pos2 = loading ? x2 - working_animation_count + 1 : x_min + 1 + working_animation_count;
-	int32_t t_reset = w1 + w2 + (h - 2) * offset;
+
+	const int32_t animation_width = w1 + w2 * 2 + 2;
+	const int32_t animation_height = h + 1;
+	const int32_t popupX = OLED_MAIN_WIDTH_PIXELS - 1 - animation_width;
+	const int32_t popupY = OLED_MAIN_TOPMOST_PIXEL + 2;
+
 	if (!started_animation) { // initialize the animation
 		started_animation = true;
+
+		deluge::hid::display::OLED::setupPopup(PopupType::NOTIFICATION, animation_width, animation_height, popupX,
+		                                       popupY);
+	}
+
+	deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::popup;
+
+	// Calculate positions using absolute coordinates (popup coordinates)
+	const int32_t x_max = popupX + animation_width;
+	const int32_t x_min = x_max - (w1 + w2 * 2); // this has to be out farther for the movement sequence
+	const int32_t x2 = x_max - w2;               // starting position of right rectangle
+	const int32_t y1 = popupY;                   // top of rectangles (absolute coordinates)
+	const int32_t y2 = y1 + h - 1;               // bottom of rectangles
+	int32_t h2;                                  // height of animated portion (will increase over time)
+	// position of left side of starting stack that will be shifted over
+	const int32_t x_pos2 = loading ? x2 - working_animation_count + 1 : x_min + 1 + working_animation_count;
+	const int32_t t_reset = w1 + w2 + (h - 2) * offset;
+
+	if (working_animation_count == 1) { // first frame after initialization
 		// clear space and draw outer borders that will not change during the animation
-		image.clearAreaExact(x_min - 1, OLED_MAIN_TOPMOST_PIXEL, x_max, y2 + 1);
+		image.clearAreaExact(popupX, popupY, popupX + animation_width - 1, popupY + animation_height - 1);
 		image.drawRectangle(x_min, y1, x_max, y2);
-		image.clearAreaExact(x_min + w2 + 1, OLED_MAIN_TOPMOST_PIXEL, x_max - w2 - 1, y2 + 1);
+		image.clearAreaExact(x_min + w2 + 1, popupY, x_max - w2 - 1, popupY + animation_height - 1);
 		h2 = h - 2; // will cause rectangle to be filled in at the start
 	}
-	else
+	else {
 		h2 = std::min((working_animation_count + 2) / offset, h - 2);
+	}
 
 	// clears the area gradually on subsequent loops.
 	image.clearAreaExact(x_min + 1, y1 + 1, x_max - 1, y1 + h2);
@@ -646,8 +658,9 @@ void updateWorkingAnimation() {
 
 void OLED::displayWorkingAnimation(std::string_view word) {
 	loading = (word == "Loading");
-	if (working_animation_count)
+	if (working_animation_count) {
 		uiTimerManager.unsetTimer(TimerName::LOADING_ANIMATION);
+	}
 	working_animation_count = 1;
 	started_animation = false;
 	updateWorkingAnimation();
@@ -656,13 +669,10 @@ void OLED::displayWorkingAnimation(std::string_view word) {
 
 void OLED::removeWorkingAnimation() {
 	// return; // infinite animation duration for debugging purposes
-	if (hasPopupOfType(PopupType::LOADING)) {
+	if (hasPopupOfType(PopupType::NOTIFICATION)) {
 		removePopup();
 	}
 	if (working_animation_count) {
-		deluge::hid::display::OLED::main.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - 18, OLED_MAIN_TOPMOST_PIXEL,
-		                                                OLED_MAIN_WIDTH_PIXELS, OLED_MAIN_TOPMOST_PIXEL + 10);
-		markChanged();
 		uiTimerManager.unsetTimer(TimerName::LOADING_ANIMATION);
 		working_animation_count = 0;
 	}
@@ -672,24 +682,6 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
                                bool alignment_bottom, bool centered, bool full_width) {
 	DEF_STACK_STRING_BUF(titleBuf, 25);
 	titleBuf.append(paramTitle);
-
-	// Debug: Reset counter for new notification sessions (when popup wasn't active)
-	// if (oledPopupWidth == 0 || popupType != PopupType::NOTIFICATION) {
-	// 	notificationUpdateCount = 0;
-	// }
-	// Debug: Track notification update frequency
-	// notificationUpdateCount++;
-	// // Debug: Log notification calls to track unnecessary updates
-	// if (usbInitializationPeriodComplete) {
-	// 	if (paramValue.has_value()) {
-	// 		D_PRINTLN("displayNotification #%d: '%s: %s' (bottom=%d)", notificationUpdateCount, paramTitle.data(),
-	// paramValue.value().data(), alignment_bottom);
-	// 	}
-	// 	else {
-	// 		D_PRINTLN("displayNotification #%d: '%s' (bottom=%d)", notificationUpdateCount, paramTitle.data(),
-	// alignment_bottom);
-	// 	}
-	// }
 
 	// Calculate the width of the strings
 	int32_t titleWidth = popup.getStringWidthInPixels(paramTitle.data(), kTextSpacingY);

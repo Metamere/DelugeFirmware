@@ -1403,6 +1403,7 @@ void PlaybackHandler::doSongSwap(bool preservePlayPosition) {
 			currentPlaybackMode = &arrangement;
 			arrangement.setupPlayback();
 			arrangement.resetPlayPos(currentSong->lastClipInstanceEnteredStartPos);
+			arrangerView.cached_playback_position_seconds = -1; // Reset cached position for time display
 		}
 
 		// Or if we weren't switching to the arranger, the equivalent of that would get called from
@@ -2947,6 +2948,7 @@ void PlaybackHandler::switchToArrangement() {
 	session.endPlayback();
 	arrangement.setupPlayback();
 	arrangement.resetPlayPos(arrangementPosToStartAtOnSwitch);
+	arrangerView.cached_playback_position_seconds = -1; // Reset cached position for time display
 	arrangerView.reassessWhetherDoingAutoScroll();
 	if (display->haveOLED()) {
 		if (!isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)

@@ -494,11 +494,7 @@ void PerformanceView::renderViewDisplay() {
 			deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
 			deluge::hid::display::OLED::clearMainImage();
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
 			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
 
 			// render "Performance View" at top of OLED screen
 			image.drawStringCentred(l10n::get(l10n::String::STRING_FOR_PERFORM_VIEW), yPos, kTextSpacingX,
@@ -542,13 +538,7 @@ void PerformanceView::renderViewDisplay() {
 			deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
 			deluge::hid::display::OLED::clearMainImage();
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
 			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
-
-			yPos = yPos + 12;
 
 			// Render "Performance View" in the middle of the OLED screen
 			image.drawStringCentred(l10n::get(l10n::String::STRING_FOR_PERFORM_VIEW), yPos, kTextSpacingX,
@@ -565,48 +555,82 @@ void PerformanceView::renderViewDisplay() {
 
 /// Render Parameter Name and Value set when using Performance Pads
 void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, int32_t knobPos) {
-	if (editingParam) {
-		// display parameter name
-		char parameterName[30];
-		strncpy(parameterName, getParamDisplayName(paramKind, paramID), 29);
-		if (display->haveOLED()) {
-			deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
-			deluge::hid::display::OLED::clearMainImage();
+	// Cache last displayed values to avoid unnecessary screen updates
+	static params::Kind last_param_kind = params::Kind::NONE;
+	static int32_t last_param_id = -1;
+	static int32_t last_knob_pos = INT32_MIN;
+	// static bool last_editing_param = false;
+	static uint32_t last_actual_render_time = 0;
+	const uint32_t current_time = AudioEngine::audioSampleTimer;
+	static bool last_param_was_stutter = false;
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
-			yPos = yPos + 12;
+	// Check if enough time has passed since the last update for visual perception
+	const uint32_t time_since_last_render = current_time - last_actual_render_time;
+	const bool min_time_elapsed = (time_since_last_render > MIN_UPDATE_INTERVAL);
 
-			image.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
+	// Check if any relevant values have changed
+	bool param_name_changed = (paramKind != last_param_kind || paramID != last_param_id);
+	bool value_changed = knobPos != last_knob_pos;
 
-			deluge::hid::display::OLED::markChanged();
+	// Skip update if values haven't changed or minimum time hasn't elapsed
+	if ((!param_name_changed && !value_changed) || !min_time_elapsed) {
+		if (!min_time_elapsed) {
+			D_PRINTLN("time elapsed: %d", min_time_elapsed);
 		}
 		else {
-			display->setScrollingText(parameterName);
+			D_PRINTLN("no change");
+		}
+		return;
+	}
+
+	// Only get parameter name if it has changed
+	char parameterName[30];
+
+	if (param_name_changed) {
+		strncpy(parameterName, getParamDisplayName(paramKind, paramID), 29);
+		parameterName[29] = '\0'; // Ensure null termination
+	}
+
+	if (editingParam) {
+		// display parameter name only
+		if (display->haveOLED()) {
+			// Only update if parameter name has changed
+			if (param_name_changed) {
+				deluge::hid::display::oled_canvas::Canvas& canvas = deluge::hid::display::OLED::main;
+
+				// Clear only the area we're using, not the entire screen
+				const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
+				canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+
+				canvas.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
+				deluge::hid::display::OLED::markChanged();
+			}
+		}
+		else {
+			if (param_name_changed) {
+				display->setScrollingText(parameterName);
+			}
 		}
 	}
 	else {
 		if (display->haveOLED()) {
-			deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
-			deluge::hid::display::OLED::clearMainImage();
+			deluge::hid::display::oled_canvas::Canvas& canvas = deluge::hid::display::OLED::main;
 
-			// display parameter name
-			char parameterName[30];
-			strncpy(parameterName, getParamDisplayName(paramKind, paramID), 29);
-
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
+			// Create a local canvas to avoid interfering with displayLoopsRemaining
+			// Clear only the areas we'll be writing to
 			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
-			image.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
+
+			// display parameter name (only if changed)
+			if (param_name_changed) {
+				canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+				canvas.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
+			}
 
 			// display parameter value
-			yPos = yPos + 24;
-
+			yPos = yPos + 12;
+			const int32_t mid_point = OLED_MAIN_WIDTH_PIXELS / 2;
+			canvas.clearAreaExact(mid_point - kTextSpacingX * 3, yPos, mid_point + kTextSpacingX * 3,
+			                      yPos + kTextSpacingY);
 			if (params::isParamQuantizedStutter(
 			        paramKind, paramID, (ModControllableAudio*)view.activeModControllableModelStack.modControllable)) {
 				char const* buffer;
@@ -625,14 +649,19 @@ void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, i
 				else { // 64ths stutter: all 4 leds turned on
 					buffer = "64ths";
 				}
-				image.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
+				canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
 			}
 			else {
+				// canvas.clearAreaExact(mid_point - kTextSpacingX - 1, yPos, mid_point + kTextSpacingX + 1, yPos +
+				// kTextSpacingY);
 				char buffer[5];
 				intToString(knobPos, buffer);
-				image.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
+				canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
 			}
-
+			// if(session.hasPlaybackActive() &&
+			// playbackHandler.isEitherClockActive() && session.launchEventAtSwungTickCount){
+			// 	sessionView.displayLoopsRemaining(true);
+			// }
 			deluge::hid::display::OLED::markChanged();
 		}
 		// 7Seg Display
@@ -664,6 +693,13 @@ void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, i
 			}
 		}
 	}
+
+	// Update cached values
+	last_param_kind = paramKind;
+	last_param_id = paramID;
+	last_knob_pos = knobPos;
+	// last_editing_param = editingParam;
+	last_actual_render_time = current_time;
 
 	onFXDisplay = true;
 }

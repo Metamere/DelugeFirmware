@@ -1012,6 +1012,7 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	                       || (display->have7SEG() && modEncoderAction != last_mod_encoder_action));
 
 	if (!values_changed && !automation_first_render && automationParamType == AutomationParamType::PER_SOUND) {
+		D_PRINTLN("returning 2");
 		return;
 	}
 
@@ -1022,6 +1023,7 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	last_actual_render_time = current_time;
 
 	if (display->haveOLED()) {
+		D_PRINTLN("rendering");
 		renderDisplayOLED(clip, output, outputType, knobPosLeft, knobPosRight);
 	}
 	else {
@@ -1057,11 +1059,8 @@ void AutomationView::renderDisplayOLED(Clip* clip, Output* output, OutputType ou
 void AutomationView::renderAutomationOverviewDisplayOLED(deluge::hid::display::oled_canvas::Canvas& canvas,
                                                          Output* output, OutputType outputType) {
 	// align string to vertically to the centre of the display
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 26;
-#else
+
 	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 18;
-#endif
 
 	// display Automation Overview
 	char const* overviewText;
@@ -1591,6 +1590,8 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 			}
 			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_AUTOMATION_CLEARED));
 
+			automation_first_render = true; // Force display update after clearing automation
+
 			return false;
 		}
 		return true;
@@ -1619,6 +1620,8 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 
 			display->displayPopup(l10n::get(l10n::String::STRING_FOR_AUTOMATION_DELETED));
 
+			automation_first_render = true; // Force display update after clearing automation
+
 			displayAutomation(padSelectionOn, !display->have7SEG());
 		}
 	}
@@ -1639,6 +1642,8 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 			noteRow->clear(action, modelStackWithNoteRow, false, true);
 
 			display->displayPopup(l10n::get(l10n::String::STRING_FOR_NOTES_CLEARED));
+
+			automation_first_render = true; // Force display update after clearing automation
 		}
 	}
 	return false;

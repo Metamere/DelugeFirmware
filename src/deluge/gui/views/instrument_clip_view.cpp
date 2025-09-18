@@ -730,7 +730,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 	// Horizontal encoder button
 	else if (b == X_ENC) {
 
-		// If user wants to "multiple" Clip contents
+		// If user wants to "multiply" Clip contents
 		if (on && Buttons::isShiftButtonPressed() && !isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)) {
 			if (isNoUIModeActive()) {
 				if (inCardRoutine) {
@@ -1716,7 +1716,10 @@ void InstrumentClipView::doubleClipLengthAction() {
 	displayZoomLevel();
 
 	if (display->haveOLED()) {
-		display->consoleText("Clip multiplied");
+		// display->consoleText("Clip multiplied"); // not needed any longer, as you can see the bars count double.
+		displayNumberOfBarsAndBeats(getCurrentClip()->getLoopLength(), currentSong->xZoom[NAVIGATION_CLIP], false,
+		                            "LONG", !display->haveOLED());
+		view.displayClipDuration(getCurrentClip());
 	}
 }
 

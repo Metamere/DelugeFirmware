@@ -164,8 +164,13 @@ void PlaybackHandler::slowRoutine() {
 				actionLogger.redo();
 				break;
 
-			// we're explicitly only interedted in UNDO and REDO
+			// we're explicitly only interested in UNDO and REDO
 			default:;
+			}
+
+			// Update clip duration display after undo/redo if we're in a clip view
+			if (display->haveOLED() && getCurrentUI() == &instrumentClipView) {
+				view.displayOutputName(getCurrentOutput(), false, getCurrentClip());
 			}
 
 			if (ALPHA_OR_BETA_VERSION && pendingGlobalMIDICommandNumClustersWritten) {
@@ -2343,21 +2348,26 @@ void PlaybackHandler::displayTempoBPM(float tempoBPM) {
 		// if we're currently in song or arranger view, we'll render tempo on the display instead of a popup
 		if ((currentUI == &sessionView || currentUI == &arrangerView)
 		    && !deluge::hid::display::OLED::isPermanentPopupPresent()) {
+
 			sessionView.lastDisplayedTempo = tempoBPM;
 			getTempoStringForOLED(tempoBPM, text);
 			sessionView.displayTempoBPM(deluge::hid::display::OLED::main, text, true);
-			deluge::hid::display::OLED::markChanged();
 
-			// If in arranger view, also update arrangement time display
 			if (currentUI == &arrangerView) {
+				// this will only update if the tempo change will result in a change in the displayed time
 				sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
 				                                                ArrangementUpdateSource::TEMPO_CHANGED);
 			}
+
+			deluge::hid::display::OLED::markChanged();
 		}
 		else {
 			text.append("Tempo: ");
 			getTempoStringForOLED(tempoBPM, text);
 			display->popupTextTemporary(text.c_str(), PopupType::TEMPO);
+			if (getCurrentUI() == &instrumentClipView) {
+				view.displayClipDuration(getCurrentClip());
+			}
 		}
 	}
 	else {

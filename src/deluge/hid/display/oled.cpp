@@ -699,26 +699,21 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
 	}
 
 	int32_t popupHeight = kTextSpacingY + 2; // 11 pixels total
-	int32_t startY;
-	int32_t popup_width;
+	int32_t startX = 0;
+	int32_t startY = OLED_MAIN_TOPMOST_PIXEL;
+	int32_t popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
 	if (alignment_bottom) {
 		// the - 2 prevents it from going out of bounds below, which will corrupt the bounds and cause the popup to
 		// disappear if the screen is updated.
 		startY = OLED_MAIN_HEIGHT_PIXELS - popupHeight - 2;
-		if (centered && !full_width) {
-			popup_width = OLED_MAIN_WIDTH_PIXELS - 1 - kTextSpacingX * 10; // leave room for stuff on left and right
-			setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, kTextSpacingX * 5, startY);
-		}
-		else {
-			popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
-			setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, 0, startY);
+		if (!full_width) {
+			popup_width -= kTextSpacingX * 10;
+			if (centered) {
+				startX = kTextSpacingX * 5;
+			}
 		}
 	}
-	else {
-		startY = OLED_MAIN_TOPMOST_PIXEL;
-		popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
-		setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, 0, startY);
-	}
+	setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, startX, startY);
 
 	// Adjust text Y position based on the popup position
 	int32_t textY = popupMinY + 1;
@@ -728,7 +723,7 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
 			popup.drawStringCentred(titleBuf.data(), textY + 1, kTextSpacingX, kTextSpacingY);
 		}
 		else {
-			popup.drawString(titleBuf.data(), 2, textY, kTextSpacingX, kTextSpacingY);
+			popup.drawString(titleBuf.data(), 2, textY + 1, kTextSpacingX, kTextSpacingY);
 		}
 	}
 	else if (FlashStorage::accessibilityMenuHighlighting != MenuHighlighting::NO_INVERSION) {

@@ -55,11 +55,8 @@ void AutomationEditorLayoutNote::renderNoteEditorDisplayOLED(deluge::hid::displa
 		parameterName.append("Velocity");
 	}
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
 	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
+
 	canvas.drawStringCentredShrinkIfNecessary(parameterName.c_str(), yPos, kTextSpacingX, kTextSpacingY);
 
 	// display note / drum name

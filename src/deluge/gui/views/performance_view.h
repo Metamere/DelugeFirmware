@@ -205,6 +205,7 @@ private:
 private:
 	bool sessionButtonActive = false;
 	bool sessionButtonUsed = false;
+	const uint32_t MIN_UPDATE_INTERVAL = 2000; // ~45ms at 44.1kHz (minimum perceptible update frequency)
 };
 
 extern PerformanceView performanceView;

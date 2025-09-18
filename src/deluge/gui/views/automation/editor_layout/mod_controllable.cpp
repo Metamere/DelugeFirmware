@@ -252,16 +252,11 @@ void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
     deluge::hid::display::oled_canvas::Canvas& canvas, Clip* clip, OutputType outputType, int32_t knobPosLeft,
     int32_t knobPosRight) {
 
-	static int32_t update_count = 0;
 	// display parameter name
 	DEF_STACK_STRING_BUF(parameterName, 30);
 	getAutomationParameterName(clip, outputType, parameterName);
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
 	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
 	canvas.drawStringCentredShrinkIfNecessary(parameterName.c_str(), yPos, kTextSpacingX, kTextSpacingY);
 
 	// display automation status
@@ -298,11 +293,7 @@ void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
 	canvas.drawStringCentred(isAutomated, yPos, kTextSpacingX, kTextSpacingY);
 
 	// display parameter value
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	yPos = OLED_MAIN_TOPMOST_PIXEL + 12 + 12 + 14;
-#else
-	yPos = OLED_MAIN_TOPMOST_PIXEL + 3 + 12 + 14;
-#endif
+	yPos = OLED_MAIN_TOPMOST_PIXEL + 29;
 
 	if (knobPosRight != kNoSelection) {
 		char bufferLeft[10];
@@ -324,8 +315,6 @@ void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
 		intToString(knobPosLeft, buffer);
 		canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
 	}
-	update_count++;
-	D_PRINTLN("updates: %d", update_count);
 }
 
 void AutomationEditorLayoutModControllable::renderAutomationEditorDisplay7SEG(Clip* clip, OutputType outputType,

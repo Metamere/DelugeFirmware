@@ -794,7 +794,7 @@ void Session::launchSchedulingMightNeedCancelling() {
 			if (loadSongUI.isLoadingSong()) {
 				loadSongUI.displayLoopsRemainingPopup(); // Wait, could this happen?
 			}
-			else if ((rootUI == &sessionView || rootUI == &performanceView)
+			else if ((rootUI == &sessionView || rootUI == &performanceView) // || rootUI == &arrangerView)
 			         && !isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)) {
 				renderUIsForOled();
 			}
@@ -2338,7 +2338,7 @@ traverseClips:
 				if (loadSongUI.isLoadingSong()) {
 					loadSongUI.displayLoopsRemainingPopup();
 				}
-				else if ((rootUI == &sessionView || rootUI == &performanceView)
+				else if ((rootUI == &sessionView || rootUI == &performanceView || rootUI == &arrangerView)
 				         && !isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)) {
 					renderUIsForOled();
 				}

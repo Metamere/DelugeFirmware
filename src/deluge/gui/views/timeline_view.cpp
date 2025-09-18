@@ -144,7 +144,7 @@ void TimelineView::displayZoomLevel(bool just_popup, bool clear_area) {
 		}
 		else {
 			static_cast<deluge::hid::display::OLED*>(display)->displayNotification(text.data(), std::nullopt, true,
-			                                                                       true, false);
+			                                                                       false, false);
 		}
 	}
 	else {
@@ -218,6 +218,13 @@ ActionResult TimelineView::horizontalEncoderAction(int32_t offset) {
 
 			initiateXZoom(zoomMagnitude, newScroll, oldXZoom);
 			displayZoomLevel();
+			if (display->haveOLED() && getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+				// update the clip length display to the appropriate precision for the current zoom level
+				// it might not need an update with every zoom level change,
+				// but it won't be updated too often so no need to track and prevent
+				displayNumberOfBarsAndBeats(currentSong->getCurrentClip()->getLoopLength(),
+				                            currentSong->xZoom[NAVIGATION_CLIP], false, "LONG", false);
+			}
 		}
 	}
 
@@ -261,7 +268,7 @@ void TimelineView::displayScrollPos() {
 }
 
 void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantization, bool countFromOne,
-                                               char const* tooLongText) {
+                                               char const* tooLongText, bool popup) {
 
 	uint32_t oneBar = currentSong->getBarLength();
 
@@ -282,9 +289,36 @@ void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantiz
 	}
 
 	if (display->haveOLED()) {
-		char buffer[15];
-		sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
-		static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true, true, false);
+		if (popup) {
+			char buffer[15];
+			sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
+			if (getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+				static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true,
+				                                                                       false, false);
+			}
+			else {
+				static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true, true,
+				                                                                       false);
+			}
+		}
+		else {
+			char buffer[11];
+			if (quantization >= 384) { // one bar per pad
+				sprintf(buffer, "%d", whichBar);
+			}
+			else if (whichBar > 999999 || quantization >= 96) { // quarter notes
+				sprintf(buffer, "%d:%d", whichBar, whichBeat);
+			}
+			else {
+				sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
+			}
+			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+			canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - 1 - kTextSpacingX * 9, yPos, OLED_MAIN_WIDTH_PIXELS - 1,
+			                      yPos + kTextSpacingY);
+			canvas.drawStringAlignRight(buffer, yPos, kTextSpacingX, kTextSpacingY);
+			deluge::hid::display::OLED::markChanged();
+		}
 	}
 	else {
 		char text[5];

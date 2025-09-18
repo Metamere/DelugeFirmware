@@ -677,6 +677,8 @@ currentClipSwitchedOver:
 				if (whichAnimation == Animation::NONE) {
 					uiNeedsRendering(currentUI);
 				}
+				// Force display update after undo/redo in automation view
+				automationView.automation_first_render = true;
 			}
 		}
 		else if (currentUI == &audioClipView) {
@@ -779,8 +781,11 @@ void ActionLogger::deleteLog(int32_t time) {
 // You must not call this during the card routine - though I've lost track of the exact reason why not - is it just
 // because we could then be in the middle of executing whichever function accessed the card and we don't know if things
 // will break?
-void ActionLogger::undo() {
+static int32_t undo_count = 0;
+static int32_t redo_count = 0;
 
+void ActionLogger::undo() {
+	static uint32_t last_undo_time = 0;
 	// Before we go and revert the most recent Action, there are a few recording-related states we first want to have a
 	// go at cancelling out of. These are treated as special cases here rather than being Consequences because they're
 	// never redoable: their "undoing" is a special case of cancellation.
@@ -817,7 +822,23 @@ displayUndoMessage:
 #ifdef undoLedX
 		indicator_leds::indicateAlertOnLed(undoLedX, undoLedY);
 #else
-		display->consoleText("Undo");
+		redo_count = 0;
+		const uint32_t current_time = AudioEngine::audioSampleTimer;
+		const uint32_t elapsed_time = current_time - last_undo_time;
+		if (elapsed_time > kSampleRate * 3) {
+			undo_count = 0;
+		}
+
+		if (undo_count > 0) {
+			DEF_STACK_STRING_BUF(undo_count_message, 7);
+			undo_count_message.appendInt(undo_count);
+			display->displayNotification("UNDO", undo_count_message.c_str());
+		}
+		else {
+			display->displayNotification("UNDO", std::nullopt);
+		}
+		undo_count++;
+		last_undo_time = AudioEngine::audioSampleTimer;
 #endif
 	}
 }
@@ -826,11 +847,29 @@ displayUndoMessage:
 // because we could then be in the middle of executing whichever function accessed the card and we don't know if things
 // will break?
 void ActionLogger::redo() {
+
+	static uint32_t last_redo_time = 0;
 	if (revert(AFTER)) {
 #ifdef redoLedX
 		indicator_leds::indicateAlertOnLed(redoLedX, redoLedY);
 #else
-		display->consoleText("Redo");
+		undo_count = 0;
+		const uint32_t current_time = AudioEngine::audioSampleTimer;
+		const uint32_t elapsed_time = current_time - last_redo_time;
+		if (elapsed_time > kSampleRate * 3) {
+			redo_count = 0;
+		}
+
+		if (redo_count > 0) {
+			DEF_STACK_STRING_BUF(undo_count_message, 7);
+			undo_count_message.appendInt(redo_count);
+			display->displayNotification("REDO", undo_count_message.c_str());
+		}
+		else {
+			display->displayNotification("REDO", std::nullopt);
+		}
+		redo_count++;
+		last_redo_time = AudioEngine::audioSampleTimer;
 #endif
 	}
 }

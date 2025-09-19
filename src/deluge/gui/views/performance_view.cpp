@@ -346,7 +346,9 @@ void PerformanceView::graphicsRoutine() {
 
 	if (!reallyNoTickSquare) {
 		if (display->haveOLED()) {
-			sixteenth_notes_remaining = sessionView.displayLoopsRemaining();
+			if (session.hasPlaybackActive()) {
+				sixteenth_notes_remaining = sessionView.displayLoopsRemaining();
+			}
 		}
 		else {
 			sixteenth_notes_remaining = sessionView.displayLoopsRemainingPopup();
@@ -555,11 +557,10 @@ void PerformanceView::renderViewDisplay() {
 
 /// Render Parameter Name and Value set when using Performance Pads
 void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, int32_t knobPos) {
-	// Cache last displayed values to avoid unnecessary screen updates
+	// Cache values for comparison to avoid unnecessary screen updates
 	static params::Kind last_param_kind = params::Kind::NONE;
 	static int32_t last_param_id = -1;
 	static int32_t last_knob_pos = INT32_MIN;
-	// static bool last_editing_param = false;
 	static uint32_t last_actual_render_time = 0;
 	const uint32_t current_time = AudioEngine::audioSampleTimer;
 	static bool last_param_was_stutter = false;
@@ -574,12 +575,6 @@ void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, i
 
 	// Skip update if values haven't changed or minimum time hasn't elapsed
 	if ((!param_name_changed && !value_changed) || !min_time_elapsed) {
-		if (!min_time_elapsed) {
-			D_PRINTLN("time elapsed: %d", min_time_elapsed);
-		}
-		else {
-			D_PRINTLN("no change");
-		}
 		return;
 	}
 
@@ -596,13 +591,13 @@ void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, i
 		if (display->haveOLED()) {
 			// Only update if parameter name has changed
 			if (param_name_changed) {
-				deluge::hid::display::oled_canvas::Canvas& canvas = deluge::hid::display::OLED::main;
+				deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
 
 				// Clear only the area we're using, not the entire screen
 				const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-				canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+				image.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
 
-				canvas.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
+				image.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
 				deluge::hid::display::OLED::markChanged();
 			}
 		}
@@ -614,54 +609,49 @@ void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, i
 	}
 	else {
 		if (display->haveOLED()) {
-			deluge::hid::display::oled_canvas::Canvas& canvas = deluge::hid::display::OLED::main;
+			deluge::hid::display::oled_canvas::Canvas& image = deluge::hid::display::OLED::main;
 
-			// Create a local canvas to avoid interfering with displayLoopsRemaining
-			// Clear only the areas we'll be writing to
 			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
 
-			// display parameter name (only if changed)
+			// clear and display parameter name if it has changed
 			if (param_name_changed) {
-				canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
-				canvas.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
+				image.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+				image.drawStringCentred(parameterName, yPos, kTextSpacingX, kTextSpacingY);
 			}
 
-			// display parameter value
-			yPos = yPos + 12;
-			const int32_t mid_point = OLED_MAIN_WIDTH_PIXELS / 2;
-			canvas.clearAreaExact(mid_point - kTextSpacingX * 3, yPos, mid_point + kTextSpacingX * 3,
-			                      yPos + kTextSpacingY);
-			if (params::isParamQuantizedStutter(
-			        paramKind, paramID, (ModControllableAudio*)view.activeModControllableModelStack.modControllable)) {
-				char const* buffer;
-				if (knobPos < -39) { // 4ths stutter: no leds turned on
-					buffer = "4ths";
+			// clear and display parameter value if it has changed
+			if (value_changed) {
+				yPos = yPos + 12;
+				const int32_t mid_point = OLED_MAIN_WIDTH_PIXELS / 2;
+				image.clearAreaExact(mid_point - kTextSpacingX * 3, yPos, mid_point + kTextSpacingX * 3,
+				                     yPos + kTextSpacingY);
+				if (params::isParamQuantizedStutter(
+				        paramKind, paramID,
+				        (ModControllableAudio*)view.activeModControllableModelStack.modControllable)) {
+					char const* buffer;
+					if (knobPos < -39) { // 4ths stutter: no leds turned on
+						buffer = "4ths";
+					}
+					else if (knobPos < -14) { // 8ths stutter: 1 led turned on
+						buffer = "8ths";
+					}
+					else if (knobPos < 14) { // 16ths stutter: 2 leds turned on
+						buffer = "16ths";
+					}
+					else if (knobPos < 39) { // 32nds stutter: 3 leds turned on
+						buffer = "32nds";
+					}
+					else { // 64ths stutter: all 4 leds turned on
+						buffer = "64ths";
+					}
+					image.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
 				}
-				else if (knobPos < -14) { // 8ths stutter: 1 led turned on
-					buffer = "8ths";
+				else {
+					char buffer[5];
+					intToString(knobPos, buffer);
+					image.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
 				}
-				else if (knobPos < 14) { // 16ths stutter: 2 leds turned on
-					buffer = "16ths";
-				}
-				else if (knobPos < 39) { // 32nds stutter: 3 leds turned on
-					buffer = "32nds";
-				}
-				else { // 64ths stutter: all 4 leds turned on
-					buffer = "64ths";
-				}
-				canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
 			}
-			else {
-				// canvas.clearAreaExact(mid_point - kTextSpacingX - 1, yPos, mid_point + kTextSpacingX + 1, yPos +
-				// kTextSpacingY);
-				char buffer[5];
-				intToString(knobPos, buffer);
-				canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
-			}
-			// if(session.hasPlaybackActive() &&
-			// playbackHandler.isEitherClockActive() && session.launchEventAtSwungTickCount){
-			// 	sessionView.displayLoopsRemaining(true);
-			// }
 			deluge::hid::display::OLED::markChanged();
 		}
 		// 7Seg Display
@@ -698,7 +688,6 @@ void PerformanceView::renderFXDisplay(params::Kind paramKind, int32_t paramID, i
 	last_param_kind = paramKind;
 	last_param_id = paramID;
 	last_knob_pos = knobPos;
-	// last_editing_param = editingParam;
 	last_actual_render_time = current_time;
 
 	onFXDisplay = true;

@@ -1910,11 +1910,16 @@ void SessionView::renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas) 
 	if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW) {
 		view.displayOutputName(getCurrentClip()->output, true, getCurrentClip());
 	}
-	else if (currentUI != &performanceView) {
-		renderViewDisplay();
-	}
-	else if (currentUI == &performanceView) {
-		displayLoopsRemaining(false);
+	else {
+		if (currentUI == &performanceView) {
+			if (session.hasPlaybackActive() && session.launchEventAtSwungTickCount
+			    && playbackHandler.isEitherClockActive()) {
+				displayLoopsRemaining(true, true);
+			}
+		}
+		else {
+			renderViewDisplay();
+		}
 	}
 
 	if (playbackHandler.isEitherClockActive()) {
@@ -2069,8 +2074,8 @@ void SessionView::renderViewDisplay() {
 	displayCurrentRootNote(canvas, root_note, false);
 
 	if (playbackHandler.isEitherClockActive() && currentPlaybackMode == &session && getCurrentUI() != &automationView
-	    && getCurrentUI() != &performanceView && session.launchEventAtSwungTickCount) {
-		displayLoopsRemaining(false);
+	    && session.launchEventAtSwungTickCount) {
+		displayLoopsRemaining(false, true);
 	}
 
 	const bool grid_view =
@@ -2502,7 +2507,8 @@ void SessionView::graphicsRoutine() {
 
 	if (!reallyNoTickSquare) {
 		if (display->haveOLED()) {
-			if (session.numRepeatsTilLaunch < 9 && !isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)) {
+			if (session.numRepeatsTilLaunch < 9 && !isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)
+			    && !isUIModeActive(UI_MODE_INSTRUMENT_CLIP_EXPANDING)) {
 				// display loops or bars:beats remaining until launch event
 				sixteenth_notes_remaining = displayLoopsRemaining();
 			}
@@ -2711,7 +2717,7 @@ static bool formatCompactNumber(StringBuf& buffer, int32_t number, int32_t limit
 
 // display loops (e.g. L11, L10...L3, L2) or bars:beats (e.g. 10:4, 10:3, 10:2, 10:1, 9:4, etc.)
 // countdown until launch event (OLED)
-int32_t SessionView::displayLoopsRemaining(bool clear_area) {
+int32_t SessionView::displayLoopsRemaining(bool clear_area, bool force_redraw) {
 	static int32_t cached_loops_remaining = 0;
 	static int32_t cached_bars_remaining = 0;
 	static int32_t cached_beats_remainder = 0;
@@ -2719,7 +2725,7 @@ int32_t SessionView::displayLoopsRemaining(bool clear_area) {
 
 	const int32_t sixteenth_notes_remaining = session.getNumSixteenthNotesRemainingTilLaunch();
 
-	if (!clear_area) { // when called in renderViewDisplay
+	if (force_redraw) {
 		cached_loops_remaining = 0;
 		cached_bars_remaining = 0;
 		cached_beats_remainder = 0;
@@ -2729,6 +2735,9 @@ int32_t SessionView::displayLoopsRemaining(bool clear_area) {
 	bool show_loop_count_indicator = false;
 	DEF_STACK_STRING_BUF(remaining, 6);
 	if (loops_remaining > 8) { // called before we get to the graphics routine
+		if (loops_remaining == cached_loops_remaining) {
+			return sixteenth_notes_remaining; // easy early exit check
+		}
 		remaining.append("L");
 		remaining.appendInt(loops_remaining); // easier to keep track of this way.
 		cached_loops_remaining = loops_remaining;

@@ -2071,7 +2071,6 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 		deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 
 		if (is_arranger_holding_clip || (getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView)) {
-			// getCurrentUI() == &instrumentClipView
 			deluge::hid::display::OLED::stopScrollingAnimation();
 
 			// Always clear the top row where name is displayed
@@ -2083,12 +2082,10 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 				yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
 				canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
 			}
-			D_PRINTLN("cleared partial");
 		}
 		else {
 			hid::display::OLED::clearMainImage();
 			cleared_main = true;
-			D_PRINTLN("cleared main");
 		}
 
 		if (!is_arranger_holding_clip) {
@@ -2140,6 +2137,9 @@ oledDrawString:
 					info.append(clip->name.get());
 				}
 				yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+				if (!cleared_main) {
+					canvas.clearAreaExact(kTextSpacingX * 8, yPos, kTextSpacingX * 11, yPos + kTextSpacingY);
+				}
 				canvas.drawString(info.data(), 0, yPos, kTextSpacingX, kTextSpacingY);
 				deluge::hid::display::OLED::setupSideScroller(1, info.data(), 0, OLED_MAIN_WIDTH_PIXELS, yPos,
 				                                              yPos + kTextSpacingY, kTextSpacingX, kTextSpacingY,

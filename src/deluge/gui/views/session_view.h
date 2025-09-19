@@ -67,7 +67,7 @@ public:
 	               uint8_t thisOccupancyMask[kDisplayWidth + kSideBarWidth], bool drawUndefinedArea = true);
 	void graphicsRoutine() override;
 	int32_t displayLoopsRemainingPopup(bool ephemeral = false);
-	int32_t displayLoopsRemaining(bool clear_area = true);
+	int32_t displayLoopsRemaining(bool clear_area = true, bool force_redraw = false);
 	void potentiallyRenderClipLaunchPlayhead(bool reallyNoTickSquare, int32_t sixteenthNotesRemaining);
 	void requestRendering(UI* ui, uint32_t whichMainRows = 0xFFFFFFFF, uint32_t whichSideRows = 0xFFFFFFFF);
 

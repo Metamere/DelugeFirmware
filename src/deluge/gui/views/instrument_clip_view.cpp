@@ -1774,24 +1774,7 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 			offsetNoteCodeAction(offset);
 		}
 		else {
-			bool hasProbabilityPopup = display->hasPopupOfType(PopupType::PROBABILITY);
-			bool hasIterancePopup = display->hasPopupOfType(PopupType::ITERANCE);
-			bool hasPopup = hasProbabilityPopup || hasIterancePopup;
-
-			// if there's no probability or iterance pop-up yet and we're turning encoder left, edit probability
-			// if there's a probability pop-up, continue editing probability
-			bool shouldEditProbability = (!hasPopup && (offset < 0)) || hasProbabilityPopup;
-
-			// if there's no probability or iterance pop-up yet and we're turning encoder right, edit iterance
-			// if there's an iterance pop-up, continue editing iterance
-			bool shouldEditIterance = (!hasPopup && (offset > 0)) || hasIterancePopup;
-
-			if (shouldEditProbability) {
-				setNoteRowProbabilityWithOffset(offset);
-			}
-			else if (shouldEditIterance) {
-				setNoteRowIteranceWithOffset(offset, false);
-			}
+			handleProbabilityOrIteranceEditing(offset, true);
 		}
 	}
 
@@ -1807,24 +1790,7 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 
 	// Or, if user holding a note(s) down, we'll adjust probability / iterance instead
 	else if (currentUIMode == UI_MODE_NOTES_PRESSED) {
-		bool hasProbabilityPopup = display->hasPopupOfType(PopupType::PROBABILITY);
-		bool hasIterancePopup = display->hasPopupOfType(PopupType::ITERANCE);
-		bool hasPopup = hasProbabilityPopup || hasIterancePopup;
-
-		// if there's no probability or iterance pop-up yet and we're turning encoder left, edit probability
-		// if there's a probability pop-up, continue editing probability
-		bool shouldEditProbability = (!hasPopup && (offset < 0)) || hasProbabilityPopup;
-
-		// if there's no probability or iterance pop-up yet and we're turning encoder right, edit iterance
-		// if there's an iterance pop-up, continue editing iterance
-		bool shouldEditIterance = (!hasPopup && (offset > 0)) || hasIterancePopup;
-
-		if (shouldEditProbability) {
-			adjustNoteProbabilityWithOffset(offset);
-		}
-		else if (shouldEditIterance) {
-			adjustNoteIteranceWithOffset(offset, false);
-		}
+		handleProbabilityOrIteranceEditing(offset, false);
 	}
 	// Or if user holding scale button and we're already in scale mode, cycle through available scales
 	else if (currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED && getCurrentInstrumentClip()->inScaleMode) {
@@ -1840,6 +1806,37 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 		    && ((NonAudioInstrument*)clip->output)->getChannel() == MIDI_CHANNEL_TRANSPOSE) {
 			exitScaleMode();
 			clip->inScaleMode = false;
+		}
+	}
+}
+
+void InstrumentClipView::handleProbabilityOrIteranceEditing(int8_t offset, bool editNoteRow) {
+	bool hasProbabilityPopup = display->hasPopupOfType(PopupType::PROBABILITY);
+	bool hasIterancePopup = display->hasPopupOfType(PopupType::ITERANCE);
+	bool hasPopup = hasProbabilityPopup || hasIterancePopup;
+
+	// if there's no probability or iterance pop-up yet and we're turning encoder left, edit probability
+	// if there's a probability pop-up, continue editing probability
+	bool shouldEditProbability = (!hasPopup && (offset < 0)) || hasProbabilityPopup;
+
+	// if there's no probability or iterance pop-up yet and we're turning encoder right, edit iterance
+	// if there's an iterance pop-up, continue editing iterance
+	bool shouldEditIterance = (!hasPopup && (offset > 0)) || hasIterancePopup;
+
+	if (shouldEditProbability) {
+		if (editNoteRow) {
+			setNoteRowProbabilityWithOffset(offset);
+		}
+		else {
+			adjustNoteProbabilityWithOffset(offset);
+		}
+	}
+	else if (shouldEditIterance) {
+		if (editNoteRow) {
+			setNoteRowIteranceWithOffset(offset, false);
+		}
+		else {
+			adjustNoteIteranceWithOffset(offset, false);
 		}
 	}
 }

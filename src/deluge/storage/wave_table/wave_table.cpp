@@ -389,13 +389,13 @@ gotError5:
 				if (clusterIndex != clusterIndexCurrentlyLoaded) {
 
 					// First, unload the old Cluster if there was one
-					if (cluster != nullptr) {
+					if (cluster) {
 						audioFileManager.removeReasonFromCluster(*cluster, "E385");
 					}
 
-					cluster = sample->clusters[clusterIndex].getCluster(sample, clusterIndex, CLUSTER_LOAD_IMMEDIATELY,
-					                                                    0, &error);
-					if (cluster == nullptr) {
+					cluster = sample->clusters.getElement(clusterIndex)
+					              ->getCluster(sample, clusterIndex, CLUSTER_LOAD_IMMEDIATELY, 0, &error);
+					if (!cluster) {
 						goto gotError5;
 					}
 
@@ -975,7 +975,7 @@ WaveTable::doRenderingLoop(int32_t* __restrict__ thisSample, int32_t const* buff
 			auto value2 = Argon<int16_t>::Load(sincKernelReadPos + 16 + (i * 8));
 
 			auto difference = value2 - value1;
-			auto multipliedDifference = difference.MultiplyFixedQMax(strength2);
+			auto multipliedDifference = difference.MultiplyFixedPoint(strength2);
 			kernelVector[i] = value1 + multipliedDifference;
 		}
 

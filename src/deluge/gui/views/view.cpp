@@ -1090,9 +1090,6 @@ void View::displayModEncoderValuePopup(params::Kind kind, int32_t paramID, int32
 	static uint32_t last_actual_display_time = 0; // Used for frequency throttling
 
 	// Timing constants for display arbitration (in AudioEngine sample units)
-	const uint32_t MIN_DISPLAY_OWNERSHIP_TIME = 44100; // 1000ms at 44.1kHz (minimum juggling time)
-	const uint32_t DISPLAY_TIMEOUT = 11025;            // 250ms at 44.1kHz (ball drop timeout)
-	const uint32_t MIN_UPDATE_INTERVAL = 2000;         // ~45ms at 44.1kHz (minimum perceptible update frequency)
 
 	uint32_t current_time = AudioEngine::audioSampleTimer;
 

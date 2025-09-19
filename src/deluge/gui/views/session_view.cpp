@@ -453,8 +453,6 @@ moveAfterClipInstance:
 		horizontalEncoderPressed = on;
 		if (on) {
 			// Show current zoom level
-			// if (isNoUIModeActive() && getRootUI() != &arrangerView && (currentSong->sessionLayout !=
-			// SessionLayoutType::SessionLayoutTypeGrid)) {
 			if (isNoUIModeActive() && (currentSong->sessionLayout != SessionLayoutType::SessionLayoutTypeGrid)) {
 				displayZoomLevel();
 			}
@@ -662,16 +660,6 @@ doActualSimpleChange:
 			changeRootUI(&performanceView);
 		}
 	}
-	// else if (b == Y_ENC) {
-	// 	if (on && !Buttons::isShiftButtonPressed()) {
-	// 		UI* currentUI = getCurrentUI();
-	// 		bool isOLEDSessionView = display->haveOLED() && (currentUI == &sessionView || currentUI == &arrangerView);
-	// 		// only display pop-up if we're using 7SEG or we're not currently in Song / Arranger View
-	// 		if (!isOLEDSessionView) {
-	// 			currentSong->displayCurrentRootNoteAndScaleName(); // for on performance view? why?
-	// 		}
-	// 	}
-	// }
 	else if (b == SCALE_MODE && on) {
 		currentSong->displayCurrentRootNoteAndScaleName(); // but this doesn't work on performance view? Why?
 	}

@@ -2269,13 +2269,19 @@ void View::displayClipDuration(Clip* clip, bool clear_area) {
 	const uint32_t clip_ticks = clip->getLoopLength();
 	const float time_per_internal_tick = currentSong->getTimePerTimerTickFloat();
 	const float clip_seconds = (clip_ticks * time_per_internal_tick) / kSampleRate;
-	const String time_string = sessionView.secondsToTimeString(clip_seconds);
-
 	if (clear_area) {
 		canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - (kTextSpacingX * 6), yPos, OLED_MAIN_WIDTH_PIXELS - 1,
 		                      yPos + kTextSpacingY);
 	}
-	canvas.drawStringAlignRight(time_string.get(), yPos, kTextSpacingX, kTextSpacingY);
+	String time_display;
+	if (clip_seconds < 60) {
+		std::string float_str = deluge::string::fromFloat(clip_seconds, (clip_seconds < 10) ? 2 : 1);
+		time_display.set(float_str.c_str());
+	}
+	else {
+		time_display = sessionView.secondsToTimeString(static_cast<int32_t>(clip_seconds));
+	}
+	canvas.drawStringAlignRight(time_display.get(), yPos, kTextSpacingX, kTextSpacingY);
 }
 
 #pragma GCC diagnostic pop

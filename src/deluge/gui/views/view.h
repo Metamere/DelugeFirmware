@@ -91,6 +91,7 @@ public:
 	bool changeOutputType(OutputType newOutputType, ModelStackWithTimelineCounter* modelStack, bool doBlink = false);
 	void drawOutputNameFromDetails(OutputType outputType, int32_t slot, int32_t subSlot, char const* name,
 	                               bool isNameEmpty, bool editedByUser, bool doBlink, Clip* clip = nullptr);
+	void displayClipDuration(Clip* clip, bool clear_area = true);
 	void startMIDILearn();
 	void endMIDILearn();
 	[[nodiscard]] RGB getClipMuteSquareColour(Clip* clip, RGB thisColour, bool allowMIDIFlash = true);

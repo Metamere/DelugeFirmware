@@ -43,11 +43,11 @@ public:
 	} // SessionView doesn't have this because it does this a different way. Sorry, confusing I know
 
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
-	void displayZoomLevel(bool justPopup = false);
+	void displayZoomLevel(bool just_popup = false, bool clear_area = true);
 	ActionResult horizontalEncoderAction(int32_t offset) override;
 	void displayScrollPos();
-	void displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantization, bool countFromOne,
-	                                 char const* tooLongText);
+	void displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantization, bool countFromOne, char const* tooLongText,
+	                                 bool popup = true);
 	void initiateXScroll(uint32_t newXScroll, int32_t numSquaresToScroll = kDisplayWidth);
 	bool zoomToMax(bool inOnly = false);
 	void initiateXZoom(int32_t zoomMagnitude, int32_t newScroll, uint32_t oldZoom);

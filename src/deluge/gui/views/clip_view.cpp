@@ -105,9 +105,8 @@ Action* ClipView::lengthenClip(int32_t newLength) {
 		}
 
 		currentSong->setClipLength(getCurrentClip(), newLength, action);
-	}
-
-	// Otherwise, do the resync that we missed out on doing
+		view.displayClipDuration(getCurrentClip());
+	} // Otherwise, do the resync that we missed out on doing
 	else {
 		if (undoing && playbackHandler.isEitherClockActive()) {
 			char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -140,6 +139,7 @@ Action* ClipView::shortenClip(int32_t newLength) {
 	    getCurrentClip(), newLength,
 	    action); // Subsequently shortening by more squares won't cause additional Consequences to be added to the same
 	// Action - it checks, and only stores the data (snapshots and original length) once
+	view.displayClipDuration(getCurrentClip());
 	return action;
 }
 
@@ -172,7 +172,10 @@ ActionResult ClipView::horizontalEncoderAction(int32_t offset) {
 
 		uint32_t newLength = changeClipLength(offset, oldLength, action);
 
-		displayNumberOfBarsAndBeats(newLength, currentSong->xZoom[NAVIGATION_CLIP], false, "LONG");
+		// update the clip length display
+		displayNumberOfBarsAndBeats(newLength, currentSong->xZoom[NAVIGATION_CLIP], false, "LONG",
+		                            !display->haveOLED());
+		view.displayClipDuration(getCurrentClip());
 
 		if (action) {
 			action->xScrollClip[AFTER] = currentSong->xScroll[NAVIGATION_CLIP];

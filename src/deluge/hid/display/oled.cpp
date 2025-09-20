@@ -120,6 +120,9 @@ int32_t oledPopupWidth = 0; // If 0, means popup isn't present / active.
 int32_t popupHeight;
 PopupType popupType = PopupType::NONE;
 
+// Debug counter to track excessive notification updates
+// int32_t notificationUpdateCount = 0;
+
 int32_t popupMinX;
 int32_t popupMaxX;
 int32_t popupMinY;
@@ -158,7 +161,7 @@ void OLED::setupPopup(PopupType type, int32_t width, int32_t height, std::option
 		::freezeWithError("D003");
 	}
 #endif
-	popup.clearAreaExact(popupMinX, popupMinY, popupMaxX, popupMaxY);
+	popup.clearAreaExact(popupMinX, popupMinY - 1, popupMaxX, popupMaxY);
 
 	if (type != PopupType::NOTIFICATION) {
 		popup.drawRectangleRounded(popupMinX, popupMinY, popupMaxX, popupMaxY);
@@ -280,6 +283,7 @@ int32_t OLED::setupConsole(int32_t height) {
 }
 
 void OLED::removePopup() {
+	// notificationUpdateCount = 0;
 	oledPopupWidth = 0;
 	popupType = PopupType::NONE;
 	uiTimerManager.unsetTimer(TimerName::DISPLAY);
@@ -664,9 +668,28 @@ void OLED::removeWorkingAnimation() {
 	}
 }
 
-void OLED::displayNotification(std::string_view paramTitle, std::optional<std::string_view> paramValue) {
+void OLED::displayNotification(std::string_view paramTitle, std::optional<std::string_view> paramValue,
+                               bool alignment_bottom, bool centered, bool full_width) {
 	DEF_STACK_STRING_BUF(titleBuf, 25);
 	titleBuf.append(paramTitle);
+
+	// Debug: Reset counter for new notification sessions (when popup wasn't active)
+	// if (oledPopupWidth == 0 || popupType != PopupType::NOTIFICATION) {
+	// 	notificationUpdateCount = 0;
+	// }
+	// Debug: Track notification update frequency
+	// notificationUpdateCount++;
+	// // Debug: Log notification calls to track unnecessary updates
+	// if (usbInitializationPeriodComplete) {
+	// 	if (paramValue.has_value()) {
+	// 		D_PRINTLN("displayNotification #%d: '%s: %s' (bottom=%d)", notificationUpdateCount, paramTitle.data(),
+	// paramValue.value().data(), alignment_bottom);
+	// 	}
+	// 	else {
+	// 		D_PRINTLN("displayNotification #%d: '%s' (bottom=%d)", notificationUpdateCount, paramTitle.data(),
+	// alignment_bottom);
+	// 	}
+	// }
 
 	// Calculate the width of the strings
 	int32_t titleWidth = popup.getStringWidthInPixels(paramTitle.data(), kTextSpacingY);
@@ -683,22 +706,46 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
 		}
 	}
 
-	setupPopup(PopupType::NOTIFICATION, OLED_MAIN_WIDTH_PIXELS - 1, kTextSpacingY + 2, 0, OLED_MAIN_TOPMOST_PIXEL);
-
-	// Draw the title and value
-	popup.drawString(titleBuf.data(), paddingLeft, OLED_MAIN_TOPMOST_PIXEL + 1, kTextSpacingX, kTextSpacingY);
-	if (valueWidth > 0) {
-		popup.drawChar(':', paddingLeft + titleWidth, OLED_MAIN_TOPMOST_PIXEL + 1, kTextSpacingX, kTextSpacingY);
-		popup.drawString(paramValue.value().data(), paddingLeft + titleWidth + 8, OLED_MAIN_TOPMOST_PIXEL + 1,
-		                 kTextSpacingX, kTextSpacingY);
+	int32_t popupHeight = kTextSpacingY + 2; // 11 pixels total
+	int32_t startX = 0;
+	int32_t startY = OLED_MAIN_TOPMOST_PIXEL;
+	int32_t popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
+	if (alignment_bottom) {
+		// the - 2 prevents it from going out of bounds below, which will corrupt the bounds and cause the popup to
+		// disappear if the screen is updated.
+		startY = OLED_MAIN_HEIGHT_PIXELS - popupHeight - 2;
+		if (!full_width) {
+			popup_width -= kTextSpacingX * 10;
+			if (centered) {
+				startX = kTextSpacingX * 5;
+			}
+		}
 	}
+	setupPopup(PopupType::NOTIFICATION, popup_width, popupHeight, startX, startY);
 
-	if (FlashStorage::accessibilityMenuHighlighting != MenuHighlighting::NO_INVERSION) {
+	// Adjust text Y position based on the popup position
+	int32_t textY = popupMinY + 1;
+
+	if (alignment_bottom) {
+		if (centered) {
+			popup.drawStringCentred(titleBuf.data(), textY + 1, kTextSpacingX, kTextSpacingY);
+		}
+		else {
+			popup.drawString(titleBuf.data(), 2, textY + 1, kTextSpacingX, kTextSpacingY);
+		}
+	}
+	else if (FlashStorage::accessibilityMenuHighlighting != MenuHighlighting::NO_INVERSION) {
+		// Draw the title and value
+		popup.drawString(titleBuf.data(), paddingLeft, textY, kTextSpacingX, kTextSpacingY);
+		if (valueWidth > 0) {
+			popup.drawChar(':', paddingLeft + titleWidth, textY, kTextSpacingX, kTextSpacingY);
+			popup.drawString(paramValue.value().data(), paddingLeft + titleWidth + 8, textY, kTextSpacingX,
+			                 kTextSpacingY);
+		}
 		// Make the notification inverted
-		popup.invertAreaRounded(0, OLED_MAIN_WIDTH_PIXELS, OLED_MAIN_TOPMOST_PIXEL,
-		                        OLED_MAIN_TOPMOST_PIXEL + kTextSpacingY + 1);
-		popup.drawPixel(0, OLED_MAIN_TOPMOST_PIXEL);
-		popup.drawPixel(OLED_MAIN_WIDTH_PIXELS - 1, OLED_MAIN_TOPMOST_PIXEL);
+		popup.invertAreaRounded(0, OLED_MAIN_WIDTH_PIXELS, popupMinY, popupMinY + kTextSpacingY + 1);
+		popup.drawPixel(0, popupMinY);
+		popup.drawPixel(OLED_MAIN_WIDTH_PIXELS - 1, popupMinY);
 	}
 
 	markChanged();

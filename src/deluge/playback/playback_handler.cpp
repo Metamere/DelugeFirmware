@@ -164,8 +164,13 @@ void PlaybackHandler::slowRoutine() {
 				actionLogger.redo();
 				break;
 
-			// we're explicitly only interedted in UNDO and REDO
+			// we're explicitly only interested in UNDO and REDO
 			default:;
+			}
+
+			// Update clip duration display after undo/redo if we're in a clip view
+			if (display->haveOLED() && getCurrentUI() == &instrumentClipView) {
+				view.displayOutputName(getCurrentOutput(), false, getCurrentClip());
 			}
 
 			if (ALPHA_OR_BETA_VERSION && pendingGlobalMIDICommandNumClustersWritten) {
@@ -1403,6 +1408,7 @@ void PlaybackHandler::doSongSwap(bool preservePlayPosition) {
 			currentPlaybackMode = &arrangement;
 			arrangement.setupPlayback();
 			arrangement.resetPlayPos(currentSong->lastClipInstanceEnteredStartPos);
+			arrangerView.cached_playback_position_seconds = -1; // Reset cached position for time display
 		}
 
 		// Or if we weren't switching to the arranger, the equivalent of that would get called from
@@ -2309,14 +2315,29 @@ float PlaybackHandler::calculateBPM(float timePerInternalTick) {
 	return currentSong->calculateBPM(timePerInternalTick);
 }
 
-void PlaybackHandler::getTempoStringForOLED(float tempoBPM, StringBuf& buffer) {
-	if (tempoBPM >= 9999.5) {
-		buffer.append("FAST");
+void PlaybackHandler::getTempoStringForOLED(float tempoBPM, StringBuf& buffer, bool automated) {
+	int32_t min_decimal_places = 0;
+	int32_t max_decimal_places;
+
+	if (tempoBPM >= 999) {
+		max_decimal_places = 0;
+	}
+	else if (tempoBPM > 40.0) {
+		max_decimal_places = 1;
+	}
+	else if (tempoBPM >= 10.0) {
+		min_decimal_places = 1;
+		max_decimal_places = 1;
+	}
+	else if (tempoBPM >= 0.1) {
+		min_decimal_places = 2;
+		max_decimal_places = 2;
 	}
 	else {
-		int32_t numDecimalPlaces = (tempoBPM >= 1000 || isExternalClockActive()) ? 0 : 2;
-		buffer.appendFloat(tempoBPM, 0, numDecimalPlaces);
+		min_decimal_places = 3;
+		max_decimal_places = 3;
 	}
+	buffer.appendFloat(tempoBPM, min_decimal_places, max_decimal_places);
 }
 
 void PlaybackHandler::displayTempoBPM(float tempoBPM) {
@@ -2327,15 +2348,26 @@ void PlaybackHandler::displayTempoBPM(float tempoBPM) {
 		// if we're currently in song or arranger view, we'll render tempo on the display instead of a popup
 		if ((currentUI == &sessionView || currentUI == &arrangerView)
 		    && !deluge::hid::display::OLED::isPermanentPopupPresent()) {
+
 			sessionView.lastDisplayedTempo = tempoBPM;
 			getTempoStringForOLED(tempoBPM, text);
 			sessionView.displayTempoBPM(deluge::hid::display::OLED::main, text, true);
+
+			if (currentUI == &arrangerView) {
+				// this will only update if the tempo change will result in a change in the displayed time
+				sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+				                                                ArrangementUpdateSource::TEMPO_CHANGED);
+			}
+
 			deluge::hid::display::OLED::markChanged();
 		}
 		else {
 			text.append("Tempo: ");
 			getTempoStringForOLED(tempoBPM, text);
 			display->popupTextTemporary(text.c_str(), PopupType::TEMPO);
+			if (getCurrentUI() == &instrumentClipView) {
+				view.displayClipDuration(getCurrentClip());
+			}
 		}
 	}
 	else {
@@ -2926,6 +2958,7 @@ void PlaybackHandler::switchToArrangement() {
 	session.endPlayback();
 	arrangement.setupPlayback();
 	arrangement.resetPlayPos(arrangementPosToStartAtOnSwitch);
+	arrangerView.cached_playback_position_seconds = -1; // Reset cached position for time display
 	arrangerView.reassessWhetherDoingAutoScroll();
 	if (display->haveOLED()) {
 		if (!isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)

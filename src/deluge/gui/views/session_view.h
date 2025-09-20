@@ -19,6 +19,10 @@
 
 #include "definitions_cxx.hpp"
 #include "gui/views/clip_navigation_timeline_view.h"
+
+// Forward declarations
+enum class ArrangementUpdateSource;
+struct ArrangementDisplayResult;
 #include "hid/button.h"
 #include "model/song/song.h"
 #include "storage/flash_storage.h"
@@ -63,6 +67,7 @@ public:
 	               uint8_t thisOccupancyMask[kDisplayWidth + kSideBarWidth], bool drawUndefinedArea = true);
 	void graphicsRoutine() override;
 	int32_t displayLoopsRemainingPopup(bool ephemeral = false);
+	int32_t displayLoopsRemaining(bool clear_area = true, bool force_redraw = false);
 	void potentiallyRenderClipLaunchPlayhead(bool reallyNoTickSquare, int32_t sixteenthNotesRemaining);
 	void requestRendering(UI* ui, uint32_t whichMainRows = 0xFFFFFFFF, uint32_t whichSideRows = 0xFFFFFFFF);
 
@@ -90,6 +95,7 @@ public:
 	void transitionToViewForClip(Clip* clip = nullptr);
 	void transitionToSessionView();
 	void finishedTransitioningHere();
+	void notifyPlaybackBegun() override;
 	void playbackEnded() override;
 	void clipNeedsReRendering(Clip* clip) override;
 	void sampleNeedsReRendering(Sample* sample) override;
@@ -146,12 +152,34 @@ public:
 
 	// display tempo
 	void displayPotentialTempoChange(UI* ui);
-	void displayTempoBPM(deluge::hid::display::oled_canvas::Canvas& canvas, StringBuf& tempoBPM, bool clearArea);
+	void displayTempoBPM(deluge::hid::display::oled_canvas::Canvas& canvas, StringBuf& tempoBPM, bool clear_area);
+
+	// display arrangement current/overall time and zoom/scroll/drag/playback indicator graphics
+	void displayArrangementPositionAndLength(deluge::hid::display::oled_canvas::Canvas& canvas,
+	                                         ArrangementUpdateSource update_source, bool clear_area = true);
+	void displayTimeString(deluge::hid::display::oled_canvas::Canvas& canvas, const char* time_string,
+	                       bool clear_area = true, int32_t clear_span = 14);
+	void displayProgressBar(deluge::hid::display::oled_canvas::Canvas& canvas, int32_t bar_width,
+	                        int32_t screen_indicator_width = 0, int32_t scroll_indicator_position = -1,
+	                        bool clear_area = true);
+
 	float lastDisplayedTempo = 0;
 
-	// display root note and scale name
-	void displayCurrentRootNoteAndScaleName(deluge::hid::display::oled_canvas::Canvas& canvas,
-	                                        StringBuf& rootNoteAndScaleName, bool clearArea);
+	// display session position and info
+	int32_t calculateSessionPlaybackTime();
+	bool display_playback_time{false};
+	void displaySessionPlaybackTime(deluge::hid::display::oled_canvas::Canvas& canvas, bool clear_area = true);
+	void resetSessionPositionTracking();
+
+	// utility function for time display
+	String secondsToTimeString(int32_t seconds, bool force_hours_format = false);
+
+	uint64_t session_playback_started_at_tick = 0;
+	uint64_t cached_playback_tick = 0;
+	int32_t elapsed_playback_seconds = 0;
+
+	void displayCurrentRootNote(deluge::hid::display::oled_canvas::Canvas& canvas, StringBuf& root_note,
+	                            bool clear_area);
 	int16_t lastDisplayedRootNote = 0;
 
 	// convert instrument clip to audio clip

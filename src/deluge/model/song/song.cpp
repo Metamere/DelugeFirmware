@@ -24,6 +24,7 @@
 #include "gui/ui/load/load_song_ui.h"
 #include "gui/views/arranger_view.h"
 #include "gui/views/audio_clip_view.h"
+#include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
 #include "gui/views/performance_view.h"
 #include "gui/views/session_view.h"
@@ -2867,14 +2868,14 @@ void Song::grabVelocityToLevelFromMIDICableAndSetupPatchingForEverything(MIDICab
 	}
 }
 
-Scale Song::cycleThroughScales() {
+Scale Song::cycleThroughScales(int32_t offset) {
 	auto startScale = getCurrentScale();
 	auto currentScale = startScale;
 	auto newScale = currentScale;
 	// Try next scale until one works, or we've tried all.
 	// NUM_PRESET_SCALES stands for the user scale.
 	do {
-		newScale = static_cast<Scale>(mod(newScale + 1, NUM_PRESET_SCALES + 1));
+		newScale = static_cast<Scale>(mod(newScale + offset, NUM_PRESET_SCALES + offset));
 		if (newScale == USER_SCALE || !disabledPresetScales[newScale]) {
 			currentScale = setScale(newScale);
 		}
@@ -5743,30 +5744,55 @@ doHibernatingInstruments:
 	return Error::NONE;
 }
 
-void Song::getCurrentRootNoteAndScaleName(StringBuf& buffer) {
-	char noteName[5];
-	int32_t isNatural = 1; // gets modified inside noteCodeToString to be 0 if sharp.
-	noteCodeToString(currentSong->key.rootNote, noteName, &isNatural);
+void Song::getCurrentRootNote(StringBuf& buffer) {
+	char note_name[6];
+	int32_t is_natural = 1; // gets modified inside noteCodeToString to be 0 if sharp.
+	noteCodeToString(currentSong->key.rootNote + 12, note_name, &is_natural); // +12 to make the default C0
 
-	buffer.append(noteName);
-	if (display->haveOLED()) {
-		buffer.append(" ");
-		buffer.append(getScaleName(getCurrentScale()));
+	// Remove last character if it's '0'. C Major looks better than C0 Major.
+	int32_t len = strlen(note_name);
+	if (len > 0 && note_name[len - 1] == '0') {
+		note_name[len - 1] = '\0';
 	}
+
+	buffer.append(note_name);
 }
+void Song::displayCurrentRootNote() {
+	DEF_STACK_STRING_BUF(note_name, 6);
+	getCurrentRootNote(note_name);
+	UI* currentUI = getCurrentUI();
+	if (display->haveOLED() && currentUI != &automationView) {
+		sessionView.displayCurrentRootNote(deluge::hid::display::OLED::main, note_name, true);
+		deluge::hid::display::OLED::markChanged();
+		return;
+	}
+	display->displayPopup(note_name.c_str());
+}
+
+void Song::getCurrentScaleName(StringBuf& buffer) {
+	buffer.append(getScaleName(getCurrentScale()));
+}
+// void Song::displayCurrentScaleName() {
+// 	DEF_STACK_STRING_BUF(popupMsg, 40);
+// 	getCurrentScaleName(popupMsg);
+// 	display->displayPopup(popupMsg.c_str());
+// }
 
 void Song::displayCurrentRootNoteAndScaleName() {
 	DEF_STACK_STRING_BUF(popupMsg, 40);
-	getCurrentRootNoteAndScaleName(popupMsg);
+	getCurrentRootNote(popupMsg);
+
 	if (display->haveOLED()) {
-		UI* currentUI = getCurrentUI();
-		bool isSessionView = (currentUI == &sessionView || currentUI == &arrangerView);
-		// only display pop-up if we're using 7SEG or we're not currently in Song / Arranger View
-		if (isSessionView && !deluge::hid::display::OLED::isPermanentPopupPresent()) {
-			sessionView.displayCurrentRootNoteAndScaleName(deluge::hid::display::OLED::main, popupMsg, true);
-			deluge::hid::display::OLED::markChanged();
-			return;
-		}
+		popupMsg.append(" ");
+		popupMsg.append(getScaleName(getCurrentScale()));
+		// UI* currentUI = getCurrentUI();
+		// bool isSessionView = (currentUI == &sessionView || currentUI == &arrangerView);
+		// // only display pop-up if we're using 7SEG or we're not currently in Song / Arranger View
+		// if (isSessionView && !deluge::hid::display::OLED::isPermanentPopupPresent()) {
+		// 	sessionView.displayCurrentRootNoteAndScaleName(deluge::hid::display::OLED::main, popupMsg, true);
+		// 	deluge::hid::display::OLED::markChanged();
+		// 	return;
+		// }
 	}
 	display->displayPopup(popupMsg.c_str());
 }
@@ -5786,7 +5812,7 @@ void Song::transpose(int32_t interval) {
 			interval *= currentSong->masterTransposeInterval;
 		}
 		transposeAllScaleModeClips(interval);
-		displayCurrentRootNoteAndScaleName();
+		displayCurrentRootNote();
 	}
 	else {
 		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_CANT_TRANSPOSE));
@@ -5855,6 +5881,10 @@ void Song::updateBPMFromAutomation() {
 		setBPMInner((float)currentTempo / 100, false);
 		intBPM = currentTempo;
 	}
+}
+
+bool Song::hasTempoAutomation() {
+	return paramManager.getUnpatchedParamSet()->params[params::UNPATCHED_TEMPO].isAutomated();
 }
 
 void Song::changeThresholdRecordingMode(int8_t offset) {

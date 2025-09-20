@@ -19,10 +19,13 @@
 #include "definitions_cxx.hpp"
 #include "extern.h"
 #include "gui/ui/load/load_pattern_ui.h"
+#include "gui/views/arranger_view.h"
+#include "gui/views/session_view.h"
 #include "gui/views/view.h"
 #include "hid/button.h"
 #include "hid/buttons.h"
 #include "hid/display/display.h"
+#include "hid/display/oled.h"
 #include "hid/led/indicator_leds.h"
 #include "hid/led/pad_leds.h"
 #include "lib/printf.h"
@@ -68,7 +71,7 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 	if (b == X_ENC) {
 		if (on) {
 			// Show current zoom level
-			if (isNoUIModeActive()) {
+			if (isNoUIModeActive() && getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
 				displayZoomLevel();
 			}
 
@@ -118,11 +121,35 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 	return ActionResult::DEALT_WITH;
 }
 
-void TimelineView::displayZoomLevel(bool justPopup) {
+void TimelineView::displayZoomLevel(bool just_popup, bool clear_area) {
 	DEF_STACK_STRING_BUF(text, 30);
 	currentSong->getNoteLengthName(text, currentSong->xZoom[getNavSysId()], "-notes", true);
 
-	display->displayPopup(text.data(), justPopup ? 3 : 0, true);
+	if (display->haveOLED() && !just_popup) {
+		if (getRootUI() == &arrangerView || getRootUI() == &sessionView) {
+			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+
+			const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+
+			if (clear_area) {
+				const int32_t x_margin = kTextSpacingX * 5;
+				canvas.clearAreaExact(x_margin, yPos, OLED_MAIN_WIDTH_PIXELS - 1 - x_margin, yPos + kTextSpacingY);
+			}
+
+			canvas.drawStringCentred(text.data(), yPos, kTextSpacingX, kTextSpacingY);
+			if (display->hasPopupOfType(PopupType::NOTIFICATION)) {
+				display->cancelPopup();
+			}
+			deluge::hid::display::OLED::markChanged();
+		}
+		else {
+			static_cast<deluge::hid::display::OLED*>(display)->displayNotification(text.data(), std::nullopt, true,
+			                                                                       false, false);
+		}
+	}
+	else {
+		display->displayPopup(text.data(), just_popup ? 3 : 0, true);
+	}
 }
 
 bool horizontalEncoderActionLock = false;
@@ -191,6 +218,13 @@ ActionResult TimelineView::horizontalEncoderAction(int32_t offset) {
 
 			initiateXZoom(zoomMagnitude, newScroll, oldXZoom);
 			displayZoomLevel();
+			if (display->haveOLED() && getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+				// update the clip length display to the appropriate precision for the current zoom level
+				// it might not need an update with every zoom level change,
+				// but it won't be updated too often so no need to track and prevent
+				displayNumberOfBarsAndBeats(currentSong->getCurrentClip()->getLoopLength(),
+				                            currentSong->xZoom[NAVIGATION_CLIP], false, "LONG", false);
+			}
 		}
 	}
 
@@ -234,7 +268,7 @@ void TimelineView::displayScrollPos() {
 }
 
 void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantization, bool countFromOne,
-                                               char const* tooLongText) {
+                                               char const* tooLongText, bool popup) {
 
 	uint32_t oneBar = currentSong->getBarLength();
 
@@ -255,9 +289,36 @@ void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantiz
 	}
 
 	if (display->haveOLED()) {
-		char buffer[15];
-		sprintf(buffer, "%d : %d : %d", whichBar, whichBeat, whichSubBeat);
-		display->popupTextTemporary(buffer);
+		if (popup) {
+			char buffer[15];
+			sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
+			if (getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+				static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true,
+				                                                                       false, false);
+			}
+			else {
+				static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true, true,
+				                                                                       false);
+			}
+		}
+		else {
+			char buffer[11];
+			if (quantization >= 384) { // one bar per pad
+				sprintf(buffer, "%d", whichBar);
+			}
+			else if (whichBar > 999999 || quantization >= 96) { // quarter notes
+				sprintf(buffer, "%d:%d", whichBar, whichBeat);
+			}
+			else {
+				sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
+			}
+			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+			canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - 1 - kTextSpacingX * 9, yPos, OLED_MAIN_WIDTH_PIXELS - 1,
+			                      yPos + kTextSpacingY);
+			canvas.drawStringAlignRight(buffer, yPos, kTextSpacingX, kTextSpacingY);
+			deluge::hid::display::OLED::markChanged();
+		}
 	}
 	else {
 		char text[5];

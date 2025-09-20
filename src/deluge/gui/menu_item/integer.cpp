@@ -74,11 +74,7 @@ void Integer::drawPixelsForOled() {
 
 void IntegerContinuous::drawPixelsForOled() {
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	drawInteger(13, 15, 20);
-#else
 	drawInteger(kTextBigSpacingX, kTextBigSizeY, 15);
-#endif
 
 	drawHorizontalBar(35, 10);
 }

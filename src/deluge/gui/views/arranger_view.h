@@ -34,6 +34,28 @@ class Drum;
 class ModelStack;
 class ModelStackWithNoteRow;
 
+enum class ArrangementUpdateSource {
+	INITIALIZE, // entering or returning to the main view
+	PLAYBACK,
+	ZOOM,
+	SCROLL,
+	SHIFT_CLIPS, // Shifting all clips to the right of view with Shift + turn X_ENC
+	DRAG_CLIP,   // Dragging a clip instance left or right
+	MODIFY_CLIP, // pressing, adding, removing or changing length of clip instances
+	TEMPO_CHANGED
+};
+
+struct ArrangementDisplayResult {
+	String time_string{};
+	String update_source{};
+	bool needs_time_update = false;
+	bool needs_bar_update = false;
+	bool is_playback_update = false;
+	int32_t progress_bar_width{0};
+	int32_t screen_indicator_width{0};
+	int32_t scroll_indicator_position{0};
+};
+
 class ArrangerView final : public TimelineView {
 public:
 	ArrangerView() = default;
@@ -71,6 +93,7 @@ public:
 	bool putDraggedClipInstanceInNewPosition(Output* output);
 	void tellMatrixDriverWhichRowsContainSomethingZoomable() override;
 	void scrollFinished() override;
+	void displayScrollPos();
 	void notifyPlaybackBegun() override;
 	uint32_t getGreyedOutRowsNotRepresentingOutput(Output* output) override;
 	void playbackEnded() override;
@@ -125,6 +148,12 @@ public:
 
 	void requestRendering(UI* ui, uint32_t whichMainRows = 0xFFFFFFFF, uint32_t whichSideRows = 0xFFFFFFFF);
 
+	// Arrangement length calculation
+	ArrangementDisplayResult calculateArrangementPositionAndLength(ArrangementUpdateSource update_source);
+	int32_t arrangementTicksToSeconds(int32_t ticks, bool rounding = true);
+	int32_t getDraggedClipPosition();
+	int32_t cached_playback_position_seconds = 0; // For arrangement playback time display
+
 private:
 	RGB getMutePadColor(int32_t yDisplay);
 	RGB getAuditionPadColor(int32_t yDisplay);
@@ -168,6 +197,11 @@ private:
 	void deleteClipInstance(Output* output, ClipInstance* clipInstance);
 	void createNewClipForClipInstance(Output* output, ClipInstance* clipInstance);
 	void recordEditPadPress(Output* output, ClipInstance* clipInstance, int32_t x, int32_t y, int32_t xScroll);
+
+	// For arrangement length and time display
+	bool first_press = false;
+	bool jump_to_start = false;
+	bool has_tempo_automation = false;
 };
 
 extern ArrangerView arrangerView;

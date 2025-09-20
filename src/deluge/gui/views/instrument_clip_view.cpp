@@ -206,8 +206,8 @@ ActionResult InstrumentClipView::commandLearnUserScale() {
 	return ActionResult::DEALT_WITH;
 }
 
-ActionResult InstrumentClipView::commandCycleThroughScales() {
-	cycleThroughScales();
+ActionResult InstrumentClipView::commandCycleThroughScales(int32_t offset) {
+	cycleThroughScales(offset);
 	recalculateColours();
 	uiNeedsRendering(this);
 	// Hook point for specificMidiDevice
@@ -730,7 +730,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 	// Horizontal encoder button
 	else if (b == X_ENC) {
 
-		// If user wants to "multiple" Clip contents
+		// If user wants to "multiply" Clip contents
 		if (on && Buttons::isShiftButtonPressed() && !isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)) {
 			if (isNoUIModeActive()) {
 				if (inCardRoutine) {
@@ -886,11 +886,11 @@ ActionResult InstrumentClipView::handleScaleButtonAction(bool on, bool inCardRou
 		}
 		return commandLearnUserScale();
 	}
-	else if (on && inScaleMode && Buttons::isShiftButtonPressed()) {
-		// If we're note in scale mode, we defer to commands that
-		// will instead enter the scale mode.
-		return commandCycleThroughScales();
-	}
+	// else if (on && inScaleMode && Buttons::isShiftButtonPressed()) {
+	// 	// If we're note in scale mode, we defer to commands that
+	// 	// will instead enter the scale mode.
+	// 	return commandCycleThroughScales();
+	// }
 	else if (on && oneNoteAuditioning()) {
 		if (inScaleMode) {
 			return commandChangeRootNote(lastAuditionedYDisplay);
@@ -1716,7 +1716,10 @@ void InstrumentClipView::doubleClipLengthAction() {
 	displayZoomLevel();
 
 	if (display->haveOLED()) {
-		display->consoleText("Clip multiplied");
+		// display->consoleText("Clip multiplied"); // not needed any longer, as you can see the bars count double.
+		displayNumberOfBarsAndBeats(getCurrentClip()->getLoopLength(), currentSong->xZoom[NAVIGATION_CLIP], false,
+		                            "LONG", !display->haveOLED());
+		view.displayClipDuration(getCurrentClip());
 	}
 }
 
@@ -1788,6 +1791,14 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 	// Or, if user holding a note(s) down, we'll adjust probability / iterance instead
 	else if (currentUIMode == UI_MODE_NOTES_PRESSED) {
 		handleProbabilityOrIteranceEditing(offset, false);
+	}
+	// Or if user holding scale button and we're already in scale mode, cycle through available scales
+	else if (currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED && getCurrentInstrumentClip()->inScaleMode) {
+		commandCycleThroughScales(offset);
+	}
+	// Or if user holding scale button and we're already in scale mode, cycle through available scales
+	else if (currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED && getCurrentInstrumentClip()->inScaleMode) {
+		commandCycleThroughScales(offset);
 	}
 	// Or, normal option - trying to change Instrument presets
 	else {
@@ -6160,9 +6171,45 @@ ActionResult InstrumentClipView::commandTransposeKey(int32_t offset, bool inCard
 	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
 
 	InstrumentClip* clip = getCurrentInstrumentClip();
-	auto nudgeType = Buttons::isShiftButtonPressed() ? VerticalNudgeType::ROW : VerticalNudgeType::OCTAVE;
-	clip->nudgeNotesVertically(offset, nudgeType, modelStack);
 
+	auto nudge_type = Buttons::isShiftButtonPressed() ? VerticalNudgeType::ROW : VerticalNudgeType::OCTAVE;
+	clip->nudgeNotesVertically(offset, nudge_type, modelStack);
+
+	if (display->haveOLED()) {
+		DEF_STACK_STRING_BUF(buffer, 40);
+		buffer.append(offset < 0 ? "--" : "++");
+
+		if (nudge_type == VerticalNudgeType::ROW) {
+			// int32_t note = clip->getYNoteFromYDisplay(0, currentSong);
+			if (getCurrentInstrumentClip()->inScaleMode) {
+				buffer.append("INTERVAL");
+			}
+			else {
+				buffer.append("SEMITONE");
+			}
+		}
+		else {
+			buffer.append("OCTAVE");
+		}
+		char top_note[7];
+		char bottom_note[7];
+		InstrumentClip* clip = getCurrentInstrumentClip(); // so we can account for the scale
+		int32_t top_note_code = clip->getYNoteFromYDisplay(7, currentSong);
+		int32_t bottom_note_code = clip->getYNoteFromYDisplay(0, currentSong);
+		noteCodeToString(top_note_code, top_note);
+		noteCodeToString(bottom_note_code, bottom_note);
+		buffer.append(" ");
+		if (nudge_type == VerticalNudgeType::OCTAVE
+		    || (nudge_type == VerticalNudgeType::ROW && strlen(bottom_note) == 2)) {
+			// Add padding to keep things more stable with the note switching between natural and flat,
+			// or just to keep things spaced out a bit more
+			buffer.append(" ");
+		}
+		buffer.append(bottom_note);
+		buffer.append(":");
+		buffer.append(top_note);
+		static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true, false, true);
+	}
 	recalculateColours();
 	uiNeedsRendering(getRootUI(), 0xFFFFFFFF, 0xFFFFFFFF);
 

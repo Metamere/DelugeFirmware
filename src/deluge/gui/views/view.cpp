@@ -2051,6 +2051,7 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 	// hook to render display for OLED and 7SEG when in Automation View
 	if (getCurrentUI() == &automationView && !isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION)) {
 		if (automationView.inAutomationEditor()) {
+			automationView.automation_first_render = true;
 			automationView.displayAutomation(true, !display->have7SEG());
 		}
 		else {
@@ -2059,18 +2060,44 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 		return;
 	}
 
+	bool is_arranger_holding_clip =
+	    (getCurrentUI() == &arrangerView && isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW));
+	bool cleared_main = false;
+
 	if (display->haveOLED()) {
 		deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
-		hid::display::OLED::clearMainImage();
 
-		char const* outputTypeText = getOutputTypeName(outputType, channel);
+		if (is_arranger_holding_clip || (getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView)) {
+			deluge::hid::display::OLED::stopScrollingAnimation();
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-		int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
-		int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
-		canvas.drawStringCentred(outputTypeText, yPos, kTextSpacingX, kTextSpacingY);
+			// Always clear the top row where name is displayed
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
+			canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + 10);
+
+			// For arranger view, also clear bottom row to preserve middle content
+			if (is_arranger_holding_clip) {
+				yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+				canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+			}
+		}
+		else {
+			hid::display::OLED::clearMainImage();
+			cleared_main = true;
+		}
+
+		if (!is_arranger_holding_clip) {
+			char const* outputTypeText = getOutputTypeName(outputType, channel);
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 18;
+			if (getCurrentUI() == &arrangerView && isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION)) {
+				canvas.drawStringCentred(outputTypeText, yPos, kTextSpacingX, kTextSpacingY);
+			}
+			else {
+				if (!cleared_main) {
+					canvas.clearAreaExact(0, yPos, kTextSpacingX * 10, yPos + kTextSpacingY);
+				}
+				canvas.drawString(outputTypeText, 0, yPos, kTextSpacingX, kTextSpacingY);
+			}
+		}
 	}
 
 	char buffer[12];
@@ -2081,12 +2108,7 @@ void View::drawOutputNameFromDetails(OutputType outputType, int32_t channel, int
 			nameToDraw = name;
 oledDrawString:
 			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 30;
-#else
-			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 17;
-#endif
-
+			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
 			int32_t stringLengthPixels = canvas.getStringWidthInPixels(nameToDraw, kTextTitleSizeY);
 
 			if (stringLengthPixels <= OLED_MAIN_WIDTH_PIXELS) {
@@ -2111,11 +2133,37 @@ oledDrawString:
 					info.append(": ");
 					info.append(clip->name.get());
 				}
-				yPos = yPos + 14;
-				canvas.drawStringCentred(info.data(), yPos, kTextSpacingX, kTextSpacingY);
+				yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+				if (!cleared_main) {
+					canvas.clearAreaExact(kTextSpacingX * 8, yPos, kTextSpacingX * 11, yPos + kTextSpacingY);
+				}
+				canvas.drawString(info.data(), 0, yPos, kTextSpacingX, kTextSpacingY);
 				deluge::hid::display::OLED::setupSideScroller(1, info.data(), 0, OLED_MAIN_WIDTH_PIXELS, yPos,
 				                                              yPos + kTextSpacingY, kTextSpacingX, kTextSpacingY,
 				                                              false);
+
+				// Display the clips length in bars and beats
+				// it might be more efficient to use the timeline_view's displayNumberOfBarsAndBeats, but it's not
+				// accessible. this keeps things simpler for the typical at-a-glance needs.
+				DEF_STACK_STRING_BUF(clip_length, 10);
+				const uint32_t ticks_per_bar = currentSong->getBarLength();
+				const uint32_t loop_length = clip->getLoopLength();
+				const int32_t full_bars = loop_length / ticks_per_bar;
+				clip_length.appendInt(full_bars);
+				const int32_t remaining_ticks = loop_length % ticks_per_bar;
+				const int32_t beats = remaining_ticks * 4 / ticks_per_bar;
+				if (full_bars < 1000 && beats > 0) {
+					clip_length.append(":");
+					clip_length.appendInt(beats);
+				}
+				if (!cleared_main) {
+					canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - (kTextSpacingX * 6), yPos,
+					                      OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+				}
+				canvas.drawStringAlignRight(clip_length.data(), yPos, kTextSpacingX, kTextSpacingY);
+				if (!is_arranger_holding_clip) {
+					displayClipDuration(getCurrentClip(), !cleared_main); // Display the clip's length in seconds
+				}
 			}
 		}
 		else {
@@ -2208,6 +2256,34 @@ oledOutputBuffer:
 		}
 	}
 }
+
+void View::displayClipDuration(Clip* clip, bool clear_area) {
+	if (!clip || !display->haveOLED()) {
+		return;
+	}
+
+	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 18;
+
+	deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+
+	const uint32_t clip_ticks = clip->getLoopLength();
+	const float time_per_internal_tick = currentSong->getTimePerTimerTickFloat();
+	const float clip_seconds = (clip_ticks * time_per_internal_tick) / kSampleRate;
+	if (clear_area) {
+		canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - (kTextSpacingX * 6), yPos, OLED_MAIN_WIDTH_PIXELS - 1,
+		                      yPos + kTextSpacingY);
+	}
+	String time_display;
+	if (clip_seconds < 60) {
+		std::string float_str = deluge::string::fromFloat(clip_seconds, (clip_seconds < 10) ? 2 : 1);
+		time_display.set(float_str.c_str());
+	}
+	else {
+		time_display = sessionView.secondsToTimeString(static_cast<int32_t>(clip_seconds));
+	}
+	canvas.drawStringAlignRight(time_display.get(), yPos, kTextSpacingX, kTextSpacingY);
+}
+
 #pragma GCC diagnostic pop
 
 void View::navigateThroughAudioOutputsForAudioClip(int32_t offset, AudioClip* clip, bool doBlink) {
@@ -2794,7 +2870,7 @@ void View::flashPlayRoutine() {
 }
 
 void View::flashPlayEnable() {
-	uiTimerManager.setTimer(TimerName::PLAY_ENABLE_FLASH, kFastFlashTime);
+	uiTimerManager.setTimer(TimerName::PLAY_ENABLE_FLASH, kFlashTime);
 }
 
 void View::flashPlayDisable() {

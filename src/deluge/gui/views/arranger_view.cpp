@@ -210,6 +210,17 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 			}
 		}
 	}
+	else if (b == CLIP_VIEW) {
+		if (on) {
+			if (inCardRoutine) {
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
+			if (currentUIMode == UI_MODE_NONE) {
+				automationView.onArrangerView = true;
+				changeRootUI(&automationView);
+			}
+		}
+	}
 
 	// Affect-entire button
 	else if (b == AFFECT_ENTIRE) {
@@ -347,7 +358,7 @@ doChangeOutputType:
 
 				// If load button held, go into LoadInstrumentPresetUI
 				if (Buttons::isButtonPressed(deluge::hid::button::LOAD)) {
-
+					display->cancelPopup();
 					// Can't do that for MIDI or CV tracks though
 					if (newOutputType == OutputType::MIDI_OUT || newOutputType == OutputType::CV) {
 						goto doActualSimpleChange;
@@ -407,15 +418,8 @@ doActualSimpleChange:
 		}
 	}
 
-	else if (b == Y_ENC) {
-		if (on && !Buttons::isShiftButtonPressed()) {
-			UI* currentUI = getCurrentUI();
-			bool isOLEDSessionView = display->haveOLED() && (currentUI == &sessionView || currentUI == &arrangerView);
-			// only display pop-up if we're using 7SEG or we're not currently in Song / Arranger View
-			if (!isOLEDSessionView) {
-				currentSong->displayCurrentRootNoteAndScaleName();
-			}
-		}
+	else if (b == SCALE_MODE && on) {
+		currentSong->displayCurrentRootNoteAndScaleName();
 	}
 
 	else {
@@ -496,6 +500,8 @@ bool ArrangerView::opened() {
 	mustRedrawTickSquares = true;
 
 	focusRegained();
+
+	has_tempo_automation = currentSong->hasTempoAutomation();
 
 	bool renderingToStore = (currentUIMode == UI_MODE_ANIMATION_FADE);
 	if (renderingToStore) {
@@ -905,6 +911,7 @@ void ArrangerView::auditionEnded() {
 
 	if (getRootUI() == &automationView) {
 		if (automationView.inAutomationEditor()) {
+			automationView.automation_first_render = true;
 			automationView.displayAutomation(true, !display->have7SEG());
 		}
 		else {
@@ -1222,9 +1229,10 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 	}
 
 	else {
+		bool edit_check = false;
 		// Press
 		if (on) {
-
+			display->cancelPopup();
 			int32_t squareStart = getPosFromSquare(x, xScroll);
 			int32_t squareEnd = getPosFromSquare(x + 1, xScroll);
 
@@ -1235,6 +1243,8 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 			// No previous press
 			if (currentUIMode == UI_MODE_NONE) {
 				createNewClipInstance(output, x, y, squareStart, squareEnd, xScroll);
+				edit_check = true;
+				first_press = true;
 				lastInteractedArrangementPos = squareStart;
 			}
 
@@ -1243,6 +1253,7 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 				// Only when pressing on the same row, and to the right of the currently held pad
 				if (y == yPressedEffective && x > xPressed) {
 					adjustClipInstanceLength(output, xPressed, y, squareStart, squareEnd);
+					edit_check = true;
 				}
 			}
 		}
@@ -1278,6 +1289,7 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 						// If pressed head, delete
 						if (pressedHead) {
 							deleteClipInstance(output, clipInstance);
+							edit_check = true;
 						}
 
 						// Otherwise, go into Clip
@@ -1298,6 +1310,11 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 					}
 				}
 			}
+		}
+		// Update arrangement display after any potential clip modifications to possibly update end position
+		if (display->haveOLED() && edit_check) {
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+			                                                ArrangementUpdateSource::MODIFY_CLIP);
 		}
 	}
 }
@@ -1359,8 +1376,8 @@ void ArrangerView::createNewClipInstance(Output* output, int32_t x, int32_t y, i
 
 		// Or, normal case where not recording to Clip. If it actually finishes to our left, we can still go
 		// ahead and make a new Instance here
-		int32_t instanceEnd = clipInstance->pos + clipInstance->length;
-		if (instanceEnd <= squareStart) {
+		int32_t instance_end = clipInstance->pos + clipInstance->length;
+		if (instance_end <= squareStart) {
 			clipInstance = createClipInstance(output, y, squareStart);
 		}
 		else {
@@ -2117,6 +2134,7 @@ itsInvalid:
 	rememberInteractionWithClipInstance(yPressedEffective, clipInstance);
 
 	uiTimerManager.unsetTimer(TimerName::UI_SPECIFIC);
+
 	return true;
 }
 
@@ -2321,22 +2339,22 @@ squareStartPosSet:
 			// following squares
 			else {
 				// get the end of the clip instance
-				int32_t instanceEnd = clipInstance->pos + clipInstance->length;
+				int32_t instance_end = clipInstance->pos + clipInstance->length;
 				// for currently recording clips, get the playhead
 				if (output->recordingInArrangement && clipInstance->clip
 				    && clipInstance->clip->getCurrentlyRecordingLinearly()) {
-					instanceEnd = arrangement.getLivePos();
+					instance_end = arrangement.getLivePos();
 				}
 
 				// if this clip goes beyond just the first square
-				if (instanceEnd > squareStartPos) {
+				if (instance_end > squareStartPos) {
 
 					// See how many squares long
 					int32_t squareEnd = xDisplay;
 					do {
 						squareStartPos = squareEndPos[squareEnd];
 						squareEnd++;
-					} while (instanceEnd > squareStartPos && squareEnd < renderWidth
+					} while (instance_end > squareStartPos && squareEnd < renderWidth
 					         && searchTerms[squareEnd] - 1 == i);
 
 					// Draw either the blank, non-existent Clip if this Instance doesn't have one...
@@ -2714,6 +2732,12 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 			newScroll = (uint32_t)(newScroll + (newZoom >> 1)) / newZoom * newZoom; // Rounding
 
 			initiateXZoom(zoomMagnitude, newScroll, oldXZoom);
+
+			// Update screen width indicator since zoom changed
+			if (display->haveOLED()) {
+				sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+				                                                ArrangementUpdateSource::ZOOM);
+			}
 			displayZoomLevel();
 		}
 	}
@@ -2826,6 +2850,13 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 				lastInteractedPos += scroll_amount;
 
 				uiNeedsRendering(this, 0xFFFFFFFF, 0);
+
+				if (display->haveOLED()) {
+					// shifting all clip instances to the right of scroll position with shift + X_ENC turn
+					// It does not allow this operation during playback
+					sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+					                                                ArrangementUpdateSource::SHIFT_CLIPS);
+				}
 			}
 		}
 	}
@@ -2907,6 +2938,16 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 		reassessWhetherDoingAutoScroll();
 	}
 
+	if (display->haveOLED()) {
+		if (dragging_clip_instance) {
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+			                                                ArrangementUpdateSource::DRAG_CLIP);
+		}
+		else {
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+			                                                ArrangementUpdateSource::SCROLL);
+		}
+	}
 	// Display scroll position, but handle potential negative scroll values during dragging
 	if (dragging_clip_instance && currentSong->xScroll[NAVIGATION_ARRANGEMENT] < 0) {
 		// It can't handle negative values, so just display the 0 position (1:1:1)
@@ -3093,6 +3134,18 @@ void ArrangerView::graphicsRoutine() {
 
 	if (display->haveOLED()) {
 		sessionView.displayPotentialTempoChange(this);
+		if (currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION
+		    && currentUIMode != UI_MODE_HOLDING_ARRANGEMENT_ROW && getCurrentUI() != &soundEditor) {
+			if (arrangement.hasPlaybackActive()) {
+				sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+				                                                ArrangementUpdateSource::PLAYBACK);
+			}
+			else if (session.launchEventAtSwungTickCount && session.numRepeatsTilLaunch < 9
+			         && getCurrentUI() != &automationView) {
+				// display loops or bars or bars:beats remaining until launch event
+				sessionView.displayLoopsRemaining();
+			}
+		}
 	}
 
 	if (PadLEDs::flashCursor != FLASH_CURSOR_OFF) {
@@ -3199,11 +3252,11 @@ void ArrangerView::autoScrollOnPlaybackEnd() {
 			newScrollPos = 0;
 		}
 
-		// If that actually puts us back to near where we were scrolled to when playback began (which it usually will),
-		// just go back there exactly. Added in response to Michael noting that if you do an UNDO and then also stop
-		// playback while recording e.g. MIDI to arranger, it scrolls backwards twice (if you have "follow" on).
-		// Actually it seems that in that situation, undoing (probably due to other mechanics that get enacted) won't
-		// let it take you further than 1 screen back from the play-cursor
+		// If that actually puts us back to near where we were scrolled to when playback began (which it usually
+		// will), just go back there exactly. Added in response to Michael noting that if you do an UNDO and then
+		// also stop playback while recording e.g. MIDI to arranger, it scrolls backwards twice (if you have
+		// "follow" on). Actually it seems that in that situation, undoing (probably due to other mechanics that get
+		// enacted) won't let it take you further than 1 screen back from the play-cursor
 		// - which just means that this is "extra" effective I guess.
 		if (newScrollPos > xScrollWhenPlaybackStarted - (xZoom >> kDisplayWidthMagnitude)
 		    || newScrollPos < xScrollWhenPlaybackStarted + (xZoom >> kDisplayWidthMagnitude)) {
@@ -3264,8 +3317,8 @@ uint32_t ArrangerView::getMaxLength() {
 
 		int32_t numElements = thisOutput->clipInstances.getNumElements();
 		if (numElements) {
-			ClipInstance* lastInstance = thisOutput->clipInstances.getElement(numElements - 1);
-			uint32_t endPos = static_cast<uint32_t>(lastInstance->pos + lastInstance->length);
+			ClipInstance* last_instance = thisOutput->clipInstances.getElement(numElements - 1);
+			uint32_t endPos = static_cast<uint32_t>(last_instance->pos + last_instance->length);
 			maxEndPos = std::max(maxEndPos, endPos);
 		}
 	}
@@ -3306,11 +3359,31 @@ void ArrangerView::scrollFinished() {
 	reassessWhetherDoingAutoScroll();
 }
 
+void ArrangerView::displayScrollPos() {
+	// When dragging a clip instance, show the clip position instead of scroll position
+	if (display->haveOLED()) {
+		if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) { // this only activates after first move
+			// Display the clip position in bars and beats
+			uint32_t quantization = currentSong->xZoom[NAVIGATION_ARRANGEMENT];
+			displayNumberOfBarsAndBeats(getDraggedClipPosition(), quantization, true, "FAR");
+			return;
+			// }
+		}
+		else { // Default behavior - show scroll position with regular centered popup
+			TimelineView::displayScrollPos();
+		}
+	}
+	else {
+		TimelineView::displayScrollPos();
+	}
+}
+
 void ArrangerView::notifyPlaybackBegun() {
 	mustRedrawTickSquares = true;
 	if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION) {
 		endAudition(outputsOnScreen[yPressedEffective], true);
 	}
+	cached_playback_position_seconds = -1;
 }
 
 bool ArrangerView::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
@@ -3342,6 +3415,7 @@ uint32_t ArrangerView::getGreyedOutRowsNotRepresentingOutput(Output* output) {
 
 void ArrangerView::playbackEnded() {
 	if (currentPlaybackMode == &arrangement) {
+		has_tempo_automation = currentSong->hasTempoAutomation();
 		autoScrollOnPlaybackEnd();
 	}
 
@@ -3383,4 +3457,439 @@ void ArrangerView::requestRendering(UI* ui, uint32_t whichMainRows, uint32_t whi
 	else if (ui == &arrangerView) {
 		uiNeedsRendering(ui, whichMainRows, whichSideRows);
 	}
+}
+
+ArrangementDisplayResult ArrangerView::calculateArrangementPositionAndLength(ArrangementUpdateSource update_source) {
+	ArrangementDisplayResult result = {};
+
+	// when playing, the bar splits into two separate indicators, one for the playback tracking,
+	// one for the current view or clip instance position
+	static int32_t playback_position = 0;
+	static int32_t playback_position_seconds = 0;
+	static int32_t cached_current_position = 0;
+	static int32_t cached_current_position_seconds = 0;
+	static int32_t cached_end_position = 0;
+	static int32_t cached_end_position_seconds = 0;
+	static int32_t cached_progress_bar_width = 0;
+	static int32_t cached_screen_indicator_width = 0; // How many pixels of progress bar represent one screen width
+	static int32_t cached_scroll_indicator_position = -1;
+
+	static uint32_t cached_bar_update_tick = 0;
+	static bool delay_playback_update_while_scrolling = false;
+
+	// Positions are in units of arrangement ticks.
+	// The current position can go negative when dragging.
+	int32_t current_position = cached_current_position;
+	int32_t current_position_seconds = cached_current_position_seconds;
+
+	// the end position is the same for both, though
+	int32_t end_position = cached_end_position;
+	int32_t end_position_seconds = cached_end_position_seconds;
+
+	// Set to cached values so we can compare for changes at the end.
+	int32_t progress_bar_width = cached_progress_bar_width;
+	int32_t scroll_indicator_position = cached_scroll_indicator_position;
+	int32_t screen_indicator_width = cached_screen_indicator_width;
+
+	// determine what we need to calculate. Though these can be changed later if other interaction sources need it
+	bool playing = arrangement.hasPlaybackActive();
+	bool initialize =
+	    (update_source == ArrangementUpdateSource::INITIALIZE); // from SessionView::renderViewDisplay() only
+	bool force_redraw = (initialize || (first_press && update_source == ArrangementUpdateSource::MODIFY_CLIP));
+
+	// During playback updates, prefer showing playback time over screen view time
+	bool playback_influenced_time_change = false;
+	bool playback_influenced_bar_change = (initialize && playing); // or when playback time increments a second
+	bool update_time_display_string = initialize;
+	bool calculate_screen_indicator_width = (initialize || update_source == ArrangementUpdateSource::ZOOM);
+	bool calculate_bar_width = (update_source == ArrangementUpdateSource::SHIFT_CLIPS
+	                            || update_source == ArrangementUpdateSource::MODIFY_CLIP);
+	bool calculate_scroll_indicator_position = (initialize || update_source == ArrangementUpdateSource::SCROLL
+	                                            || (update_source == ArrangementUpdateSource::MODIFY_CLIP && playing));
+
+	if (initialize) {
+		cached_end_position = 0;
+		// D_PRINTLN("----------------------------  initialize ---------------------------");
+	}
+
+	// if it enters with playback active, we already know we're not holding or dragging a clip instance
+	// or holding the audition pad, because those display on a different view, then reinitialize when returning.
+	if (update_source == ArrangementUpdateSource::PLAYBACK) {
+		// When playing, it has to go through this every time the graphics routine function runs, which is ~60 Hz.
+		// An empty arrangement will stop playback immediately and then call an INITIALIZE update type.
+		playback_position = arrangement.getLivePos(); // always increasing
+		playback_position_seconds = arrangementTicksToSeconds(playback_position, false);
+		if ((playback_position_seconds > cached_playback_position_seconds)
+		    && !(delay_playback_update_while_scrolling
+		         && AudioEngine::audioSampleTimer - cached_bar_update_tick < kSampleRate)) {
+
+			// D_PRINTLN("updated because playback seconds: %d > cached: %d", playback_position_seconds,
+			//           cached_playback_position_seconds);
+
+			// we set the playback_position_seconds when playback started, and we're
+			// always going to count up. If we're starting in the middle, it won't likely be exactly on a second mark,
+			// so the first update come sooner than expected due to the rounding
+			cached_playback_position_seconds = playback_position_seconds;
+			playback_influenced_time_change = true;
+			update_time_display_string = true;
+			calculate_bar_width = true;
+			playback_influenced_bar_change = true;
+			delay_playback_update_while_scrolling = false;
+		}
+	}
+	else { // it may still be playing, but this means we didn't get here from the graphics routine
+		if (initialize || update_source == ArrangementUpdateSource::DRAG_CLIP
+		    || update_source == ArrangementUpdateSource::SHIFT_CLIPS
+		    || update_source == ArrangementUpdateSource::MODIFY_CLIP || cached_end_position <= 0) {
+
+			// Calculate end position. Must set to 0 to properly recalculate
+			end_position = 0;
+
+			for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
+				// Skip muted outputs (currently doesn't recalculate when they are toggled on/off)
+				// if (output->mutedInArrangementMode) continue;
+
+				// Clip instances are stored in sequential order, so only need to check the last one
+				int32_t num_clip_instances = output->clipInstances.getNumElements();
+				if (num_clip_instances > 0) {
+					ClipInstance* cached_instance = output->clipInstances.getElement(num_clip_instances - 1);
+					if (cached_instance && cached_instance->clip) {
+						int32_t instance_end = cached_instance->pos + cached_instance->length;
+						end_position = std::max(end_position, instance_end);
+					}
+				}
+			}
+		}
+
+		if (update_source == ArrangementUpdateSource::DRAG_CLIP
+		    || update_source == ArrangementUpdateSource::MODIFY_CLIP) {
+			// use the position of the clip instance itself so we can see exactly where it is
+			// this shows on a different screen, so we can ignore the playback position.
+			current_position = getDraggedClipPosition();
+			calculate_scroll_indicator_position = true;
+			playback_influenced_bar_change = false;
+		}
+		else if (initialize || update_source == ArrangementUpdateSource::SCROLL) {
+			// the current view position (i.e. the left side of the screen)
+			current_position = std::max(0L, currentSong->xScroll[NAVIGATION_ARRANGEMENT]);
+			if (playing) {
+				calculate_bar_width = true; // otherwise it would prevent all bar updates during scrolling while
+				                            // playing. Might be a better way to handle this.
+				playback_position = arrangement.getLivePos();
+				playback_influenced_bar_change = true;
+			}
+		}
+		else if (update_source == ArrangementUpdateSource::TEMPO_CHANGED) {
+			if (playing) {
+				playback_position = arrangement.getLivePos();
+				playback_position_seconds = arrangementTicksToSeconds(playback_position, false);
+
+				// don't update if it's the same, or if it's going to jump back up
+				// to the current time in less than a second
+				if (playback_position_seconds < cached_playback_position_seconds - 1
+				    || playback_position_seconds > cached_playback_position_seconds) {
+					// have to update the cache otherwise if the playback_position_seconds increases
+					// it would stop updating the time display until it caught back up
+					cached_playback_position_seconds = playback_position_seconds;
+					// D_PRINTLN("TEMPO_CHANGED: updated because playback sec: %d != cached: %d",
+					// playback_position_seconds, cached_playback_position_seconds);
+					update_time_display_string = true;
+					playback_influenced_time_change = true;
+					// since we are updating the playback time so that's what we want to display
+				}
+			}
+			else {
+				current_position_seconds = arrangementTicksToSeconds(current_position);
+				if (current_position_seconds != cached_current_position_seconds) {
+					// D_PRINTLN("TEMPO_CHANGED: updated because current sec: %d != cached: %d",
+					// current_position_seconds, cached_current_position_seconds);
+					cached_current_position_seconds = current_position_seconds;
+					update_time_display_string = true;
+				}
+			}
+			end_position_seconds = arrangementTicksToSeconds(end_position);
+			if (end_position_seconds != cached_end_position_seconds) {
+				// D_PRINTLN("TEMPO_CHANGED: updated because end sec: %d != cached: %d",
+				// end_position_seconds,cached_end_position_seconds);
+				cached_end_position_seconds = end_position_seconds;
+				update_time_display_string = true;
+			}
+		}
+
+		if (current_position != cached_current_position) {
+			calculate_bar_width = true;
+			// D_PRINTLN("updated because current pos: %d != cached: %d", current_position, cached_current_position);
+			// check if current position time has changed due to any of the above interactions
+			current_position_seconds = arrangementTicksToSeconds(current_position);
+			if (current_position_seconds != cached_current_position_seconds) {
+				// D_PRINTLN("updated because current sec: %d != cached: %d", current_position_seconds,
+				//           cached_current_position_seconds);
+				cached_current_position_seconds = current_position_seconds;
+				update_time_display_string = true;
+			}
+		}
+
+		// check if end position time has changed due to any of the above interactions
+		if (end_position != cached_end_position) {
+			if (end_position <= 0) {
+				// Empty arrangement - set end time to 0
+				// no need to worry about it evaluating too often, since it won't play an empty arrangement
+				// if we started at 0, these would already get set to 0. The rest will get set to 0 below.
+				end_position = 0;
+				cached_end_position = 0;
+				end_position_seconds = 0;
+				cached_end_position_seconds = 0;
+				current_position = 0;
+				current_position_seconds = 0;
+				playback_position = 0;
+				playback_position_seconds = 0;
+				update_time_display_string = true;
+				// D_PRINTLN("updated because 0");
+			}
+			else {
+				// all are divided by the end position (i.e., the total arrangement length),
+				// so will need to check later if the lengths on screen changed
+				calculate_bar_width = true;
+				// D_PRINTLN("updated because end pos: %d != cached: %d", end_position, cached_end_position);
+				calculate_scroll_indicator_position = true;
+				calculate_screen_indicator_width = true;
+
+				cached_end_position = end_position;
+				end_position_seconds = arrangementTicksToSeconds(end_position);
+				if (end_position_seconds != cached_end_position_seconds) {
+					// D_PRINTLN("updated because end sec: %d != cached: %d", end_position_seconds,
+					// cached_end_position_seconds);
+					cached_end_position_seconds = end_position_seconds;
+					update_time_display_string = true;
+				}
+			}
+		}
+	} // end of main if/else block
+
+	// Recalculates when needed, otherwise it will keep the old values.
+	// It will only call to update the display when either the screen gets cleared and we want to display it,
+	// or if some aspect of the time string or bar will be different. And even then, it handles them separately,
+	// since the bar and time can change independently depending on the length of the song in bars and in seconds,
+	// and the current zoom level
+
+	if (update_time_display_string || calculate_bar_width || calculate_scroll_indicator_position
+	    || calculate_screen_indicator_width || force_redraw) {
+
+		// update remaining cached values once they are done being changed
+		cached_current_position = current_position;
+
+		if (end_position == 0) { // Avoid a divide by zero crash when calculating widths on screen
+			D_PRINTLN("end position 0");
+			progress_bar_width = 0;
+			scroll_indicator_position = 0;
+			screen_indicator_width = 0;
+		}
+		else {
+			if (calculate_bar_width) {
+				int32_t position_for_bar = playback_influenced_bar_change ? playback_position : current_position;
+				if (position_for_bar < 0) {
+					// only the current position can be negative, for when dragging a clip instance back to zero.
+					progress_bar_width = 0;
+				}
+				else {
+					// convert from audio ticks position to pixels position for screen. Maybe make a helper function?
+					progress_bar_width =
+					    static_cast<int32_t>(static_cast<float>(position_for_bar) / static_cast<float>(end_position)
+					                             * static_cast<float>(OLED_MAIN_WIDTH_PIXELS - 1)
+					                         + 0.5f);
+					// D_PRINTLN("progress bar width changed: %d, current=%d, end=%d", progress_bar_width,
+					// current_position, cached_end_position);
+					// }
+					if (progress_bar_width > OLED_MAIN_WIDTH_PIXELS - 1) {
+						progress_bar_width = OLED_MAIN_WIDTH_PIXELS - 1;
+					}
+				}
+			}
+			if (calculate_scroll_indicator_position) {
+				if (playing
+				    && !(update_source == ArrangementUpdateSource::DRAG_CLIP
+				         || update_source == ArrangementUpdateSource::MODIFY_CLIP)) {
+					int32_t position_for_scroll = std::max(0L, currentSong->xScroll[NAVIGATION_ARRANGEMENT]);
+					// convert from audio ticks position to pixels position for screen
+					scroll_indicator_position =
+					    static_cast<int32_t>(static_cast<float>(position_for_scroll) / static_cast<float>(end_position)
+					                             * static_cast<float>(OLED_MAIN_WIDTH_PIXELS - 1)
+					                         + 0.5f);
+
+					// Add bounds checking for scroll_indicator_position
+					scroll_indicator_position =
+					    std::clamp(scroll_indicator_position, 0L, static_cast<int32_t>(OLED_MAIN_WIDTH_PIXELS - 1));
+				}
+				else {
+					scroll_indicator_position = progress_bar_width;
+				}
+			}
+			if (calculate_screen_indicator_width) {
+				// Calculate screen width indicator: depends on zoom level, so only update on zoom changes or when
+				// initializing represent the screen width using the dashed line or checkerboard lines
+				int32_t screen_left_pos = getPosFromSquare(0);
+				int32_t screen_right_pos = getPosFromSquare(kDisplayWidth);
+				int32_t screen_width_ticks = screen_right_pos - screen_left_pos;
+
+				if (screen_width_ticks > 0) {
+					// convert from audio ticks position to pixels position for screen. It can be up to twice
+					// the song length when zoomed out all the way, but it will get limited in the draw code.
+					screen_indicator_width =
+					    static_cast<int32_t>(static_cast<float>(screen_width_ticks) / static_cast<float>(end_position)
+					                             * static_cast<float>(OLED_MAIN_WIDTH_PIXELS - 1)
+					                         + 0.5f);
+				}
+				else {
+					screen_indicator_width = 0;
+				}
+			}
+		}
+		// we only need to update the time display string if we are going to update the display
+
+		if (update_time_display_string || force_redraw) {
+
+			// Determine format based on end time duration (both times should use same format)
+			bool use_hours_format = (end_position_seconds / 60 >= 1000); // Over 999 minutes = use HH:MM format
+
+			// Create display string with consistent formatting
+			int32_t time_to_use =
+			    playback_influenced_time_change ? playback_position_seconds : current_position_seconds;
+
+			String arrangement_time_string = sessionView.secondsToTimeString(time_to_use, use_hours_format);
+
+			// Use appropriate separator based on format
+			if (use_hours_format) {
+				arrangement_time_string.concatenate("."); // period for HH:MM . HH:MM (it takes a full space)
+			}
+			else {
+				arrangement_time_string.concatenate("/"); // Forward slash for MM:SS/MM:SS
+			}
+
+			// Generate end time string with same format
+			String end_time_string = sessionView.secondsToTimeString(end_position_seconds, use_hours_format);
+			arrangement_time_string.concatenate(end_time_string.get());
+
+			// Add an asterisk if tempo automation was found in the arrangement when we checked on view open or playback
+			// ended, since we aren't accounting for it in our time display calculations yet. We could in theory scan
+			// through and figure out the time distortion field and calculate how much it will add or remove from the
+			// total. if we can set up linear or step changes in automation view this would become much simpler.
+			if (has_tempo_automation) {
+				arrangement_time_string.concatenate("*");
+			}
+			// cached_arrangement_time_string = arrangement_time_string;
+			deluge::hid::display::OLED::markChanged();
+			result.time_string = arrangement_time_string;
+			result.needs_time_update = true;
+			result.is_playback_update = playback_influenced_time_change;
+			result.progress_bar_width = cached_progress_bar_width;
+			result.scroll_indicator_position = cached_scroll_indicator_position;
+			result.screen_indicator_width = cached_screen_indicator_width;
+		}
+
+		// finally, we see if we need to update the bar display
+		if (force_redraw || progress_bar_width != cached_progress_bar_width
+		    || scroll_indicator_position != cached_scroll_indicator_position
+		    || screen_indicator_width != cached_screen_indicator_width) {
+
+			if (playing && update_source == ArrangementUpdateSource::SCROLL) {
+				// keep track to prevent updates from playback time increments while scrolling
+				delay_playback_update_while_scrolling = true;
+				cached_bar_update_tick = AudioEngine::audioSampleTimer;
+			}
+
+			// if any of them didn't change, they will just get set to their current value.
+			// these are all values in pixels from 0-128 for drawing on the screen
+			cached_progress_bar_width = progress_bar_width;
+			cached_scroll_indicator_position = scroll_indicator_position;
+			cached_screen_indicator_width = screen_indicator_width;
+
+			// Only mark changed and set needs_bar_update if not throttled
+			deluge::hid::display::OLED::markChanged();
+			result.needs_bar_update = true;
+			result.is_playback_update = playback_influenced_bar_change;
+			result.progress_bar_width = cached_progress_bar_width;
+			result.scroll_indicator_position = cached_scroll_indicator_position;
+			result.screen_indicator_width = cached_screen_indicator_width;
+		}
+		first_press = false;
+
+#if ALPHA_OR_BETA_VERSION
+		// for debugging purposes
+		if (result.needs_bar_update || result.needs_time_update) {
+			String type_name;
+			switch (update_source) {
+			case ArrangementUpdateSource::INITIALIZE:
+				type_name.set("INITIALIZE");
+				break;
+			case ArrangementUpdateSource::PLAYBACK:
+				type_name.set("PLAYBACK");
+				break;
+			case ArrangementUpdateSource::ZOOM:
+				type_name.set("ZOOM");
+				break;
+			case ArrangementUpdateSource::SCROLL:
+				type_name.set("SCROLL");
+				break;
+			case ArrangementUpdateSource::SHIFT_CLIPS:
+				type_name.set("SHIFT_CLIPS");
+				break;
+			case ArrangementUpdateSource::DRAG_CLIP:
+				type_name.set("DRAG_CLIP");
+				break;
+			case ArrangementUpdateSource::MODIFY_CLIP:
+				type_name.set("MODIFY_CLIP");
+				break;
+			case ArrangementUpdateSource::TEMPO_CHANGED:
+				type_name.set("TEMPO_CHANGED");
+				break;
+			}
+			// Set update_source once to avoid self-assignment
+			result.update_source = type_name;
+		}
+#endif
+	}
+	return result;
+}
+
+// Convert arrangement ticks to seconds
+int32_t ArrangerView::arrangementTicksToSeconds(int32_t ticks, bool rounding) {
+
+	if (ticks <= 0) {
+		return 0;
+	}
+
+	float time_per_internal_tick = currentSong->getTimePerTimerTickFloat();
+	float total_seconds = (ticks * time_per_internal_tick) / kSampleRate;
+	// D_PRINTLN("arrangementTicksToSeconds: ticks=%d, time_per_tick=%f, total_seconds=%f", ticks,
+	// time_per_internal_tick, total_seconds);
+
+	int32_t result;
+	if (rounding) {
+		// use this for the total length, so we get a 60 second song
+		// instead of 59 when we have 60 beats in a 60 bpm song.
+		result = static_cast<int32_t>(total_seconds + 0.5f);
+	}
+	else {
+		// Truncate so that we go 1 only after we get to 1 second,
+		// not just past 0.5 if we rounded. This is used for the playback position
+		result = static_cast<int32_t>(total_seconds);
+	}
+
+	// D_PRINTLN("arrangementTicksToSeconds returning: %d", result);
+	return result;
+}
+
+// Get the current position of a clip instance for dragging or modifying
+int32_t ArrangerView::getDraggedClipPosition() {
+
+	ClipInstance* pressed_instance =
+	    (ClipInstance*)pressedClipInstanceOutput->clipInstances.getElement(pressedClipInstanceIndex);
+
+	if (first_press) {
+		return pressed_instance->pos;
+	}
+	// Calculate current clip position: original position + movement from dragging
+	int32_t xMovement =
+	    currentSong->xScroll[NAVIGATION_ARRANGEMENT] - pressedClipInstanceXScrollWhenLastInValidPosition;
+	return pressed_instance->pos + xMovement;
 }

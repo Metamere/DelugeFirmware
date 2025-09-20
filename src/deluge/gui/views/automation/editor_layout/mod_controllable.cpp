@@ -251,15 +251,12 @@ void AutomationEditorLayoutModControllable::renderAutomationUnipolarSquare(
 void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
     deluge::hid::display::oled_canvas::Canvas& canvas, Clip* clip, OutputType outputType, int32_t knobPosLeft,
     int32_t knobPosRight) {
+
 	// display parameter name
 	DEF_STACK_STRING_BUF(parameterName, 30);
 	getAutomationParameterName(clip, outputType, parameterName);
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
 	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
 	canvas.drawStringCentredShrinkIfNecessary(parameterName.c_str(), yPos, kTextSpacingX, kTextSpacingY);
 
 	// display automation status
@@ -296,7 +293,7 @@ void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
 	canvas.drawStringCentred(isAutomated, yPos, kTextSpacingX, kTextSpacingY);
 
 	// display parameter value
-	yPos = yPos + 12;
+	yPos = OLED_MAIN_TOPMOST_PIXEL + 29;
 
 	if (knobPosRight != kNoSelection) {
 		char bufferLeft[10];

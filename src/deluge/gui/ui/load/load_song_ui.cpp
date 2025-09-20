@@ -790,8 +790,7 @@ void LoadSongUI::selectEncoderAction(int8_t offset) {
 			session.numRepeatsTilLaunch = 9999;
 		}
 		if (display->haveOLED()) {
-			// renderUIsForOled();
-			displayLoopsRemainingPopup();
+			renderUIsForOled();
 		}
 		else {
 			sessionView.redrawNumericDisplay();

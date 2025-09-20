@@ -98,8 +98,8 @@ public:
 	/// Learn notes from current clip + scale mode clips as USER scale.
 	/// Enters scale mode if wasn't in it already. LEARN + SCALE.
 	ActionResult commandLearnUserScale();
-	/// Cycle through preset scales. SHIFT + SCALE in scale mode.
-	ActionResult commandCycleThroughScales();
+	/// Cycle through preset scales. Hold SCALE and turn SELECT while in scale mode.
+	ActionResult commandCycleThroughScales(int32_t offset);
 	/// Flash the current root note. Part of SCALE down.
 	ActionResult commandFlashRootNote();
 	/// Enter scale mode with selected root. AUDITION + SCALE or SCALE + AUDITION in schromatic mode.
@@ -108,7 +108,7 @@ public:
 	ActionResult commandEnterScaleMode();
 	/// Exit scale mdoe. SCALE when in scale mode.
 	ActionResult commandExitScaleMode();
-	/// Change current root note. AUDITION + SCALE or SCALE + AUDITION in scale mod.
+	/// Change current root note. AUDITION + SCALE or SCALE + AUDITION in scale mode.
 	ActionResult commandChangeRootNote(uint8_t yDisplay);
 
 	/// VERTICAL ENCODER ACTION related

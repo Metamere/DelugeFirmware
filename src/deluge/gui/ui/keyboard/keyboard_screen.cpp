@@ -426,26 +426,12 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 		if (on) {
 			if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED) {
-
-				// If user holding shift and we're already in scale mode, cycle through available scales
-				if (Buttons::isShiftButtonPressed() && inScaleMode) {
-					cycleThroughScales();
-					requestRendering();
-				}
-
-				// Or, no shift button - normal behaviour
-				else {
-					currentUIMode = UI_MODE_SCALE_MODE_BUTTON_PRESSED;
-					toggleScaleModeOnButtonRelease = true;
-					scaleButtonPressTime = AudioEngine::audioSampleTimer;
-					// if you're already in scale mode, display the current scale
-					if (inScaleMode) {
-						currentSong->displayCurrentRootNoteAndScaleName();
-					}
-					// if (!getCurrentInstrumentClip()->inScaleMode) {
-					// 	calculateDefaultRootNote(); // Calculate it now so we can show the user even before they've
-					// released the button 	flashDefaultRootNoteOn = false; 	flashDefaultRootNote();
-					// }
+				currentUIMode = UI_MODE_SCALE_MODE_BUTTON_PRESSED;
+				toggleScaleModeOnButtonRelease = true;
+				scaleButtonPressTime = AudioEngine::audioSampleTimer;
+				// if you're already in scale mode, display the current scale
+				if (inScaleMode) {
+					currentSong->displayCurrentRootNoteAndScaleName();
 				}
 			}
 
@@ -552,14 +538,6 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 		}
 	}
 
-	else if (b == SELECT_ENC && on && getCurrentInstrumentClip()->inScaleMode
-	         && currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED) {
-		toggleScaleModeOnButtonRelease = false;
-		cycleThroughScales();
-		layout_list[getCurrentInstrumentClip()->keyboardState.currentLayout]->precalculate();
-		requestRendering();
-	}
-
 	// store if the user is holding the x encoder
 	else if (b == X_ENC) {
 		xEncoderActive = on;
@@ -640,6 +618,20 @@ ActionResult KeyboardScreen::horizontalEncoderAction(int32_t offset) {
 	if (isUIModeWithinRange(padActionUIModes)) {
 		evaluateActiveNotes();
 		updateActiveNotes();
+	}
+	else if (getCurrentOutputType() != OutputType::KIT && currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED
+	         && getCurrentInstrumentClip()->inScaleMode) {
+		// Change root note for scale
+		toggleScaleModeOnButtonRelease = false;
+		int32_t newRootNote = ((currentSong->key.rootNote + kOctaveSize) + offset) % kOctaveSize;
+		instrumentClipView.setupChangingOfRootNote(newRootNote);
+
+		// Display both root note and scale name, as the scale may get changed
+		currentSong->displayCurrentRootNoteAndScaleName();
+		layout_list[getCurrentInstrumentClip()->keyboardState.currentLayout]->handleHorizontalEncoder(
+		    0, false, pressedPads, xEncoderActive);
+		layout_list[getCurrentInstrumentClip()->keyboardState.currentLayout]->precalculate();
+		requestRendering();
 	}
 
 	requestRendering();
@@ -723,26 +715,9 @@ void KeyboardScreen::selectEncoderAction(int8_t offset) {
 		keyboardButtonUsed = true;
 		selectLayout(offset);
 	}
-	else if (getCurrentOutputType() != OutputType::KIT && currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED
-	         && getCurrentInstrumentClip()->inScaleMode) {
-
-		bool useSharps = FlashStorage::defaultUseSharps;
-		toggleScaleModeOnButtonRelease = false;
-		int32_t newRootNote = ((currentSong->key.rootNote + kOctaveSize) + offset) % kOctaveSize;
-		instrumentClipView.setupChangingOfRootNote(newRootNote);
-
-		char noteName[3] = {0};
-		noteName[0] = useSharps ? noteCodeToNoteLetter[newRootNote] : noteCodeToNoteLetterFlats[newRootNote];
-		if (display->haveOLED()) {
-			if (noteCodeIsSharp[newRootNote]) {
-				char accidential = useSharps ? '#' : FLAT_CHAR;
-				noteName[1] = accidential;
-			}
-		}
-		display->displayPopup(noteName, 3, false, (noteCodeIsSharp[newRootNote] ? 0 : 255));
-		layout_list[getCurrentInstrumentClip()->keyboardState.currentLayout]->handleHorizontalEncoder(
-		    0, false, pressedPads, xEncoderActive);
-		layout_list[getCurrentInstrumentClip()->keyboardState.currentLayout]->precalculate();
+	else if (currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED && getCurrentInstrumentClip()->inScaleMode) {
+		// If user holding scale button and we're already in scale mode, cycle through available scales
+		cycleThroughScales(offset);
 		requestRendering();
 	}
 	else {

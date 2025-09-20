@@ -470,6 +470,7 @@ void AutomationView::initializeView() {
 
 // Initializes some stuff to begin a new editing session
 void AutomationView::focusRegained() {
+	automation_first_render = true;
 	if (onArrangerView) {
 		indicator_leds::setLedState(IndicatorLED::BACK, false);
 		indicator_leds::setLedState(IndicatorLED::KEYBOARD, false);
@@ -542,6 +543,7 @@ void AutomationView::openedInBackground() {
 
 			instrumentClipView.recalculateColours();
 		}
+		automation_first_render = true;
 	}
 
 	bool renderingToStore = (currentUIMode == UI_MODE_ANIMATION_FADE);
@@ -964,6 +966,22 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	if (getCurrentUI() != &automationView) {
 		return;
 	}
+	// Cache last displayed values to avoid unnecessary screen updates
+	static int32_t last_knob_pos_left = INT32_MIN;
+	static int32_t last_knob_pos_right = INT32_MIN;
+	static int32_t last_display_value = INT32_MIN;
+	static bool last_mod_encoder_action = false;
+	static uint32_t last_actual_render_time = 0;
+
+	const uint32_t current_time = AudioEngine::audioSampleTimer;
+
+	// Check if enough time has passed since the last update for visual perception
+	const uint32_t time_since_last_render = current_time - last_actual_render_time;
+	const bool min_time_elapsed = (time_since_last_render > MIN_UPDATE_INTERVAL);
+
+	if (!min_time_elapsed && !automation_first_render) {
+		return;
+	}
 
 	Clip* clip = getCurrentClip();
 	Output* output = clip->output;
@@ -989,19 +1007,36 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 		}
 	}
 
-	// OLED Display
+	// Check whether the values to be displayed have changed
+	bool values_changed = (knobPosLeft != last_knob_pos_left || knobPosRight != last_knob_pos_right
+	                       || (display->have7SEG() && modEncoderAction != last_mod_encoder_action));
+
+	if (!values_changed && !automation_first_render && automationParamType == AutomationParamType::PER_SOUND) {
+		D_PRINTLN("returning 2");
+		return;
+	}
+
+	// Update cached values
+	last_knob_pos_left = knobPosLeft;
+	last_knob_pos_right = knobPosRight;
+	last_mod_encoder_action = modEncoderAction;
+	last_actual_render_time = current_time;
+
 	if (display->haveOLED()) {
+		D_PRINTLN("rendering");
 		renderDisplayOLED(clip, output, outputType, knobPosLeft, knobPosRight);
 	}
-	// 7SEG Display
 	else {
 		renderDisplay7SEG(clip, output, outputType, knobPosLeft, modEncoderAction);
 	}
+
+	automation_first_render = false;
 }
 
 void AutomationView::renderDisplayOLED(Clip* clip, Output* output, OutputType outputType, int32_t knobPosLeft,
                                        int32_t knobPosRight) {
 	deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+
 	hid::display::OLED::clearMainImage();
 
 	if (onAutomationOverview()) {
@@ -1024,11 +1059,8 @@ void AutomationView::renderDisplayOLED(Clip* clip, Output* output, OutputType ou
 void AutomationView::renderAutomationOverviewDisplayOLED(deluge::hid::display::oled_canvas::Canvas& canvas,
                                                          Output* output, OutputType outputType) {
 	// align string to vertically to the centre of the display
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 24;
-#else
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 15;
-#endif
+
+	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 18;
 
 	// display Automation Overview
 	char const* overviewText;
@@ -1509,7 +1541,7 @@ bool AutomationView::handleHorizontalEncoderButtonAction(bool on, bool isAudioCl
 				instrumentClipView.doubleClipLengthAction();
 			}
 			else {
-				displayZoomLevel();
+				displayZoomLevel(true);
 			}
 		}
 		// Whether or not we did the "multiply" action above, we need to be in this UI mode, e.g. for
@@ -1558,6 +1590,8 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 			}
 			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_AUTOMATION_CLEARED));
 
+			automation_first_render = true; // Force display update after clearing automation
+
 			return false;
 		}
 		return true;
@@ -1586,6 +1620,8 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 
 			display->displayPopup(l10n::get(l10n::String::STRING_FOR_AUTOMATION_DELETED));
 
+			automation_first_render = true; // Force display update after clearing automation
+
 			displayAutomation(padSelectionOn, !display->have7SEG());
 		}
 	}
@@ -1606,6 +1642,8 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 			noteRow->clear(action, modelStackWithNoteRow, false, true);
 
 			display->displayPopup(l10n::get(l10n::String::STRING_FOR_NOTES_CLEARED));
+
+			automation_first_render = true; // Force display update after clearing automation
 		}
 	}
 	return false;
@@ -1762,6 +1800,11 @@ ActionResult AutomationView::handleEditPadAction(ModelStackWithAutoParam* modelS
                                                  Clip* clip, Output* output, OutputType outputType,
                                                  int32_t effectiveLength, int32_t x, int32_t y, int32_t velocity,
                                                  SquareInfo& squareInfo) {
+
+	// Cancel any display notifications (like scroll position) when grid pad is pressed
+	if (velocity > 0) {
+		display->cancelPopup();
+	}
 
 	if (onArrangerView && isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION)) {
 		return ActionResult::DEALT_WITH;
@@ -1978,6 +2021,7 @@ void AutomationView::handleParameterSelection(Clip* clip, Output* output, Output
 	}
 
 	resetParameterShortcutBlinking();
+	automation_first_render = true;
 	if (inNoteEditor()) {
 		automationParamType = AutomationParamType::PER_SOUND;
 		instrumentClipView.resetSelectedNoteRowBlinking();
@@ -2619,6 +2663,7 @@ void AutomationView::selectEncoderAction(int8_t offset) {
 
 	// update name on display, the LED mod indicators, and refresh the grid
 	lastPadSelectedKnobPos = kNoSelection;
+	automation_first_render = true;
 	if (multiPadPressSelected && padSelectionOn) {
 		char modelStackMemory[MODEL_STACK_MAX_SIZE];
 		ModelStackWithTimelineCounter* modelStackWithTimelineCounter = nullptr;
@@ -3011,6 +3056,7 @@ void AutomationView::notifyPlaybackBegun() {
 void AutomationView::initParameterSelection(bool updateDisplay) {
 	resetShortcutBlinking();
 	initPadSelection();
+	automation_first_render = true;
 
 	if (onArrangerView) {
 		currentSong->lastSelectedParamID = kNoSelection;

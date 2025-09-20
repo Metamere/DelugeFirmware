@@ -172,6 +172,7 @@ void SessionView::focusRegained() {
 
 	if (display->haveOLED()) {
 		setCentralLEDStates();
+		// refresh_loop_display = true;
 	}
 	else {
 		redrawNumericDisplay();
@@ -455,7 +456,6 @@ moveAfterClipInstance:
 			if (isNoUIModeActive() && (currentSong->sessionLayout != SessionLayoutType::SessionLayoutTypeGrid)) {
 				displayZoomLevel();
 			}
-
 			enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
 		}
 
@@ -598,6 +598,7 @@ changeOutputType:
 							goto doActualSimpleChange;
 						}
 
+						display->cancelPopup();
 						actionLogger.deleteAllLogs();
 
 						currentUIMode = UI_MODE_NONE;
@@ -659,15 +660,8 @@ doActualSimpleChange:
 			changeRootUI(&performanceView);
 		}
 	}
-	else if (b == Y_ENC) {
-		if (on && !Buttons::isShiftButtonPressed()) {
-			UI* currentUI = getCurrentUI();
-			bool isOLEDSessionView = display->haveOLED() && (currentUI == &sessionView || currentUI == &arrangerView);
-			// only display pop-up if we're using 7SEG or we're not currently in Song / Arranger View
-			if (!isOLEDSessionView) {
-				currentSong->displayCurrentRootNoteAndScaleName();
-			}
-		}
+	else if (b == SCALE_MODE && on) {
+		currentSong->displayCurrentRootNoteAndScaleName(); // but this doesn't work on performance view? Why?
 	}
 	else {
 notDealtWith:
@@ -1414,7 +1408,7 @@ ActionResult SessionView::horizontalEncoderAction(int32_t offset) {
 ActionResult SessionView::verticalEncoderAction(int32_t offset, bool inCardRoutine) {
 
 	if (currentUIMode == UI_MODE_NONE && Buttons::isButtonPressed(deluge::hid::button::Y_ENC)) {
-		currentSong->commandTranspose(offset);
+		currentSong->commandTranspose(offset); // transpose when in song view
 	}
 	else if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW
 	         || currentUIMode == UI_MODE_VIEWING_RECORD_ARMING
@@ -1904,21 +1898,20 @@ void SessionView::renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas) 
 	if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW) {
 		view.displayOutputName(getCurrentClip()->output, true, getCurrentClip());
 	}
-	else if (currentUI != &performanceView) {
-		renderViewDisplay();
+	else {
+		if (currentUI == &performanceView) {
+			if (session.hasPlaybackActive() && session.launchEventAtSwungTickCount
+			    && playbackHandler.isEitherClockActive()) {
+				displayLoopsRemaining(true, true);
+			}
+		}
+		else {
+			renderViewDisplay();
+		}
 	}
 
 	if (playbackHandler.isEitherClockActive()) {
-		// Session playback
-		if (currentPlaybackMode == &session) {
-			if (session.launchEventAtSwungTickCount) {
-				intToString(session.numRepeatsTilLaunch, &loopsRemainingText[17]);
-				deluge::hid::display::OLED::clearMainImage();
-				deluge::hid::display::OLED::drawPermanentPopupLookingText(loopsRemainingText);
-			}
-		}
-
-		else { // Arrangement playback
+		if (currentPlaybackMode == &arrangement) {
 			if (playbackHandler.stopOutputRecordingAtLoopEnd) {
 				deluge::hid::display::OLED::clearMainImage();
 				deluge::hid::display::OLED::drawPermanentPopupLookingText("Resampling will end...");
@@ -2030,23 +2023,6 @@ void SessionView::renderViewDisplay() {
 	deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 	hid::display::OLED::clearMainImage();
 
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 12;
-#else
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-#endif
-
-	DEF_STACK_STRING_BUF(tempoBPM, 10);
-	lastDisplayedTempo = playbackHandler.calculateBPM(playbackHandler.getTimePerInternalTickFloat());
-	playbackHandler.getTempoStringForOLED(lastDisplayedTempo, tempoBPM);
-	displayTempoBPM(canvas, tempoBPM, false);
-
-#if OLED_MAIN_HEIGHT_PIXELS == 64
-	yPos = OLED_MAIN_TOPMOST_PIXEL + 30;
-#else
-	yPos = OLED_MAIN_TOPMOST_PIXEL + 17;
-#endif
-
 	char const* name;
 	if (currentSong->name.isEmpty()) {
 		name = "UNSAVED";
@@ -2054,36 +2030,61 @@ void SessionView::renderViewDisplay() {
 	else {
 		name = currentSong->name.get();
 	}
-
+	int32_t row1_pos = OLED_MAIN_TOPMOST_PIXEL + 3;
 	int32_t stringLengthPixels = canvas.getStringWidthInPixels(name, kTextTitleSizeY);
-
 	if (stringLengthPixels <= OLED_MAIN_WIDTH_PIXELS) {
-		canvas.drawStringCentred(name, yPos, kTextTitleSpacingX, kTextTitleSizeY);
+		canvas.drawStringCentred(name, row1_pos, kTextTitleSpacingX, kTextTitleSizeY);
 	}
 	else {
-		canvas.drawString(name, 0, yPos, kTextTitleSpacingX, kTextTitleSizeY);
-		deluge::hid::display::OLED::setupSideScroller(0, name, 0, OLED_MAIN_WIDTH_PIXELS, yPos, yPos + kTextTitleSizeY,
-		                                              kTextTitleSpacingX, kTextTitleSizeY, false);
+		canvas.drawString(name, 0, row1_pos, kTextTitleSpacingX, kTextTitleSizeY);
+		deluge::hid::display::OLED::setupSideScroller(0, name, 0, OLED_MAIN_WIDTH_PIXELS, row1_pos,
+		                                              row1_pos + kTextTitleSizeY, kTextTitleSpacingX, kTextTitleSizeY,
+		                                              false);
 	}
 
-	yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+	// row 2 -------------------------------------------------------------------
+	if (getCurrentUI() == &arrangerView) {
+		displayArrangementPositionAndLength(canvas, ArrangementUpdateSource::INITIALIZE, false);
+	}
+	else if (display_playback_time) {
+		// Display session elapsed time if shift + play was pressed to start playback
+		displaySessionPlaybackTime(canvas, false);
+	}
 
-	DEF_STACK_STRING_BUF(rootNoteAndScaleName, 40);
-	currentSong->getCurrentRootNoteAndScaleName(rootNoteAndScaleName);
-	displayCurrentRootNoteAndScaleName(canvas, rootNoteAndScaleName, false);
+	DEF_STACK_STRING_BUF(tempoBPM, 10);
+	lastDisplayedTempo = playbackHandler.calculateBPM(playbackHandler.getTimePerInternalTickFloat());
+	playbackHandler.getTempoStringForOLED(lastDisplayedTempo, tempoBPM);
+	displayTempoBPM(canvas, tempoBPM, false);
 
+	// row 3 -------------------------------------------------------------------
+	DEF_STACK_STRING_BUF(root_note, 6);
+	currentSong->getCurrentRootNote(root_note);
+	displayCurrentRootNote(canvas, root_note, false);
+
+	if (playbackHandler.isEitherClockActive() && currentPlaybackMode == &session && getCurrentUI() != &automationView
+	    && session.launchEventAtSwungTickCount) {
+		displayLoopsRemaining(false, true);
+	}
+
+	const bool grid_view =
+	    (getCurrentUI() == &sessionView && currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid);
+
+	if (!grid_view) {
+		displayZoomLevel(false, false);
+	}
 	deluge::hid::display::OLED::markChanged();
 }
 
 void SessionView::displayTempoBPM(deluge::hid::display::oled_canvas::Canvas& canvas, StringBuf& tempoBPM,
-                                  bool clearArea) {
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
+                                  bool clear_area) {
+	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 16;
 
-	int32_t metronomeIconSpacingX = 7 + 3;
+	const int32_t metronomeIconSpacingX = 7 + 3;
 
-	if (clearArea) {
-		canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - (kTextSpacingX * 6) - metronomeIconSpacingX,
-		                      OLED_MAIN_TOPMOST_PIXEL, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+	if (clear_area) {
+		// Clear tempo area on the right
+		canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - (kTextSpacingX * 6) - metronomeIconSpacingX, yPos,
+		                      OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
 	}
 
 	canvas.drawStringAlignRight(tempoBPM.c_str(), yPos, kTextSpacingX, kTextSpacingY);
@@ -2093,16 +2094,291 @@ void SessionView::displayTempoBPM(deluge::hid::display::oled_canvas::Canvas& can
 	canvas.drawGraphicMultiLine(deluge::hid::display::OLED::metronomeIcon, metronomeIconStartX, yPos, 7);
 }
 
-void SessionView::displayCurrentRootNoteAndScaleName(deluge::hid::display::oled_canvas::Canvas& canvas,
-                                                     StringBuf& rootNoteAndScaleName, bool clearArea) {
+// Decide whether to draw the arrangement progress bar and indicators and the current time and total length,
+// then call the functions to do so if needed.
+void SessionView::displayArrangementPositionAndLength(deluge::hid::display::oled_canvas::Canvas& canvas,
+                                                      ArrangementUpdateSource update_source, bool clear_area) {
 
-	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
-
-	if (clearArea) {
-		canvas.clearAreaExact(0, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
+	if (getRootUI() == &automationView) {
+		// it would be useful in automation view, but the info displayed will need to be rearranged/condensed
+		// and some bugs will need to be worked out (delayed updates from scroll, no updates from zoom)
+		return;
 	}
 
-	canvas.drawString(rootNoteAndScaleName.c_str(), 0, yPos, kTextSpacingX, kTextSpacingY);
+	// Get the display result with all the information and flags.
+	ArrangementDisplayResult result = arrangerView.calculateArrangementPositionAndLength(update_source);
+
+	if (result.needs_time_update) {
+		displayTimeString(canvas, result.time_string.get(), clear_area);
+	}
+	if (result.needs_bar_update) {
+		displayProgressBar(canvas, result.progress_bar_width, result.screen_indicator_width,
+		                   result.scroll_indicator_position, clear_area);
+	}
+
+	// Debug messages
+#if ALPHA_OR_BETA_VERSION
+	if (result.needs_time_update || result.needs_bar_update) {
+		float update_time = static_cast<float>(AudioEngine::audioSampleTimer) / kSampleRate;
+
+		String update_type_code;
+		if (result.is_playback_update) {
+			update_type_code.concatenate("P");
+		}
+		if (result.needs_bar_update) {
+			update_type_code.concatenate("B");
+		}
+		if (result.needs_time_update) {
+			update_type_code.concatenate("T");
+		}
+
+		D_PRINTLN("%s-%s-t:%.3f, bar width:%d, scroll pos:%d, screen width:%d, %s", result.update_source.get(),
+		          update_type_code.get(), update_time, result.progress_bar_width, result.scroll_indicator_position,
+		          result.screen_indicator_width, result.time_string.get());
+	}
+#endif
+}
+
+// Draw the time string to the screen
+void SessionView::displayTimeString(deluge::hid::display::oled_canvas::Canvas& canvas, const char* time_string,
+                                    bool clear_area, int32_t clear_span) {
+	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 16; // position and total length time string
+	// Always clear enough space for the longest reasonable length format
+	// (MMM:SS/MMM:SS* = 14 characters, with a possible asterisk indicating tempo automation)
+	if (clear_area) { // clearAreaExact is broken for this region apparently, so have to do it the hard way
+		for (int32_t y = yPos; y < yPos + kTextSpacingY; y++) {
+			for (int32_t x = 0; x < kTextSpacingX * clear_span + 2; x++) {
+				canvas.clearPixel(x, y);
+			}
+		}
+	}
+	if (time_string) {
+		canvas.drawString(time_string, 0, yPos, kTextSpacingX, kTextSpacingY);
+	}
+}
+
+// Draw the progress bar to the screen
+void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& canvas, int32_t bar_width,
+                                     int32_t screen_indicator_width, int32_t scroll_indicator_position,
+                                     bool clear_area) {
+	const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 27;
+
+	if (clear_area) {
+		// Clear horizontal strip for progress bar lines
+		for (int32_t x = bar_width; x < OLED_MAIN_WIDTH_PIXELS; ++x) {
+			canvas.clearPixel(x, yPos);
+			canvas.clearPixel(x, yPos + 1);
+		}
+	}
+
+	// draw quarter markers and end marker
+	const int32_t half_width = OLED_MAIN_WIDTH_PIXELS >> 1;
+	const int32_t quarter_width = half_width >> 1;
+	const int32_t three_quarters_width = half_width + quarter_width;
+	canvas.drawPixel(OLED_MAIN_WIDTH_PIXELS - 1, yPos);
+	canvas.drawPixel(OLED_MAIN_WIDTH_PIXELS - 1, yPos + 1);
+	if (bar_width < three_quarters_width) {
+		canvas.drawPixel(three_quarters_width, yPos);
+		canvas.drawPixel(three_quarters_width, yPos + 1);
+	}
+	if (bar_width < half_width) {
+		canvas.drawPixel(half_width, yPos);
+		canvas.drawPixel(half_width, yPos + 1);
+	}
+	if (bar_width < quarter_width) {
+		canvas.drawPixel(quarter_width, yPos);
+		canvas.drawPixel(quarter_width, yPos + 1);
+	}
+
+	// draw progress bar (at 0 width it shows 1 pixel to act as the starting marker)
+	canvas.drawHorizontalLine(yPos, 0, bar_width);
+	canvas.drawHorizontalLine(yPos + 1, 0, bar_width);
+	int32_t bottom_line_indicator_end = bar_width;
+	int32_t overlap;
+	if (screen_indicator_width > 0) {
+		bottom_line_indicator_end = bar_width + screen_indicator_width;
+		overlap = bottom_line_indicator_end - (OLED_MAIN_WIDTH_PIXELS - 1);
+		if (overlap > 0) {
+			bottom_line_indicator_end = OLED_MAIN_WIDTH_PIXELS - 1;
+		}
+		// Draw a dashed indicator line extending from the end of the bar to represent the screen width extent
+		int32_t count = 0;
+		// canvas.drawPixel(bottom_line_indicator_end, yPos); // to make the end point more visible?
+		for (int32_t x = bottom_line_indicator_end; x > bar_width; x--) {
+			count++;
+			if (count % 2 == 1) {
+				canvas.drawPixel(x, yPos + 1);
+			}
+		}
+	}
+	if (scroll_indicator_position >= 0) {
+		int32_t top_line_indicator_end;
+		bool separated = false; // whether it is locked to the bar position or can split off
+		if (scroll_indicator_position == bar_width) {
+			top_line_indicator_end = bottom_line_indicator_end;
+		}
+		else {
+			separated = true;
+			top_line_indicator_end = scroll_indicator_position + std::max(2, (int)screen_indicator_width);
+			overlap = top_line_indicator_end - (OLED_MAIN_WIDTH_PIXELS - 1);
+			if (overlap > 0) {
+				top_line_indicator_end = OLED_MAIN_WIDTH_PIXELS - 1;
+			}
+		}
+
+		const bool draw_bottom =
+		    (separated
+		     && (scroll_indicator_position > bottom_line_indicator_end || top_line_indicator_end < bar_width));
+
+		top_line_indicator_end = std::min((int)top_line_indicator_end, OLED_MAIN_WIDTH_PIXELS - 1);
+		// Draw a dashed indicator line to represent the view window position
+		// for cases like when playback happening in arranger and the regular bar is occupied
+		int32_t count = 0;
+		for (int32_t x = top_line_indicator_end; x >= scroll_indicator_position; x--) {
+			bool negative = (x < bar_width);
+			if (count == 0 || x == scroll_indicator_position) {
+				if (negative) {
+					canvas.clearPixel(x, yPos);
+					if (draw_bottom) {
+						canvas.clearPixel(x, yPos + 1);
+					}
+				}
+				else if (separated || screen_indicator_width > 3) {
+					canvas.drawPixel(x, yPos);
+					if (draw_bottom) {
+						canvas.drawPixel(x, yPos + 1);
+					}
+				}
+			}
+
+			if (overlap > 0 && (count <= overlap)) {
+				canvas.drawPixel(x, yPos);
+				if (draw_bottom) {
+					canvas.drawPixel(x, yPos + 1);
+				}
+			}
+			else if (count % 2 == 1) {
+				if (negative) {
+					canvas.clearPixel(x, yPos);
+				}
+				else {
+					canvas.drawPixel(x, yPos);
+				}
+			}
+			else if (draw_bottom) {
+				if (negative) {
+					canvas.clearPixel(x, yPos + 1);
+				}
+				else {
+					canvas.drawPixel(x, yPos + 1);
+				}
+			}
+			count++;
+		}
+	}
+
+	// inverted indicators
+	if (bar_width > three_quarters_width) {
+		canvas.clearPixel(three_quarters_width, yPos);
+		canvas.clearPixel(three_quarters_width, yPos + 1);
+	}
+	if (bar_width > half_width) {
+		canvas.clearPixel(half_width, yPos);
+		canvas.clearPixel(half_width, yPos + 1);
+	}
+	if (bar_width > quarter_width) {
+		canvas.clearPixel(quarter_width, yPos);
+		canvas.clearPixel(quarter_width, yPos + 1);
+	}
+}
+
+void SessionView::displayCurrentRootNote(deluge::hid::display::oled_canvas::Canvas& canvas, StringBuf& root_note,
+                                         bool clear_area) {
+
+	const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+
+	if (clear_area) {
+		canvas.clearAreaExact(0, yPos, kTextSpacingX * 5, yPos + kTextSpacingY);
+	}
+	canvas.drawString(root_note.c_str(), 0, yPos, kTextSpacingX, kTextSpacingY);
+}
+
+// Calculate and keep track of session elapsed play time
+int32_t SessionView::calculateSessionPlaybackTime() {
+	const uint64_t elapsed_playback_ticks = AudioEngine::audioSampleTimer - session_playback_started_at_tick;
+	const uint64_t ticks_change = elapsed_playback_ticks - cached_playback_tick;
+
+	if (ticks_change >= kSampleRate) {
+		if (ticks_change < kSampleRate * 2) {
+			cached_playback_tick += kSampleRate;
+			elapsed_playback_seconds++;
+		}
+		else { // If we have been away for a while, catch back up
+			int32_t catch_up_seconds = ticks_change / kSampleRate;
+			cached_playback_tick += catch_up_seconds * kSampleRate;
+			elapsed_playback_seconds += catch_up_seconds;
+		}
+		deluge::hid::display::OLED::markChanged();
+		return elapsed_playback_seconds;
+	}
+	else
+		return -1; // no change in seconds count, so it will use cached value if needed
+}
+
+// Display session elapsed time
+void SessionView::displaySessionPlaybackTime(deluge::hid::display::oled_canvas::Canvas& canvas, bool clear_area) {
+
+	if (playbackHandler.playbackState) {
+		const int32_t playback_seconds = calculateSessionPlaybackTime();
+		// update if time has changed or if the call came from renderViewDisplay
+		if (playback_seconds > -1 || !clear_area) {
+			String time_string = secondsToTimeString(elapsed_playback_seconds);
+			displayTimeString(canvas, time_string.get(), clear_area, 6);
+		}
+	}
+	else if (!clear_area && elapsed_playback_seconds > 0) {
+		// Display final time even when playback has stopped
+		String time_string = secondsToTimeString(elapsed_playback_seconds);
+		displayTimeString(canvas, time_string.get(), clear_area, 6);
+	}
+}
+
+// Helper function to convert seconds to MM:SS or HH:MM time string format
+String SessionView::secondsToTimeString(int32_t seconds, bool force_hours_format) {
+	String time_string;
+
+	if (seconds <= 0) {
+		time_string.set("0:00");
+		return time_string;
+	}
+
+	// Convert to minutes and seconds
+	int32_t minutes = seconds / 60;
+	int32_t seconds_remainder = seconds % 60;
+
+	// Use HH:MM format if forced or if duration is very long (over 999 minutes ≈ 16.6 hours)
+	if (force_hours_format || minutes >= 1000) {
+		int32_t hours = minutes / 60;
+		time_string.concatenateInt(hours);
+		if (hours < 1000) {
+			int32_t minutes_remainder = minutes % 60;
+			time_string.concatenate(":");
+			if (minutes_remainder < 10) {
+				time_string.concatenate("0");
+			}
+			time_string.concatenateInt(minutes_remainder);
+		}
+	}
+	else {
+		// Normal format: MM:SS
+		time_string.concatenateInt(minutes);
+		time_string.concatenate(":");
+		if (seconds_remainder < 10)
+			time_string.concatenate("0");
+		time_string.concatenateInt(seconds_remainder);
+	}
+
+	return time_string;
 }
 
 // This gets called by redrawNumericDisplay() - or, if OLED, it gets called instead, because this still needs to
@@ -2205,22 +2481,35 @@ void SessionView::graphicsRoutine() {
 
 	if (display->haveOLED()) {
 		displayPotentialTempoChange(this);
+		if (display_playback_time && getCurrentUI() == &sessionView
+		    && !isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)) {
+			// Display session elapsed time if shift + play was pressed to start playback
+			displaySessionPlaybackTime(hid::display::OLED::main, true);
+		}
 	}
 
 	bool reallyNoTickSquare = (!playbackHandler.isEitherClockActive() || currentUIMode == UI_MODE_EXPLODE_ANIMATION
 	                           || currentUIMode == UI_MODE_IMPLODE_ANIMATION || !session.launchEventAtSwungTickCount);
 
-	int32_t sixteenthNotesRemaining = 0;
+	int32_t sixteenth_notes_remaining = 0;
 
-	// display bars / notes remaining until launch event
 	if (!reallyNoTickSquare) {
-		sixteenthNotesRemaining = displayLoopsRemainingPopup();
+		if (display->haveOLED()) {
+			if (session.numRepeatsTilLaunch < 9 && !isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)
+			    && !isUIModeActive(UI_MODE_INSTRUMENT_CLIP_EXPANDING)) {
+				// display loops or bars:beats remaining until launch event
+				sixteenth_notes_remaining = displayLoopsRemaining();
+			}
+		}
+		else { // display bars or beats remaining until launch event
+			sixteenth_notes_remaining = displayLoopsRemainingPopup();
+		}
 	}
 
 	// in grid view, the only playhead we potentially render a playhead that displays
 	// when the next clip launch event is expected occur (e.g. when clips will start or end)
 	if (currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid) {
-		potentiallyRenderClipLaunchPlayhead(reallyNoTickSquare, sixteenthNotesRemaining);
+		potentiallyRenderClipLaunchPlayhead(reallyNoTickSquare, sixteenth_notes_remaining);
 
 		return;
 	}
@@ -2360,46 +2649,177 @@ void SessionView::displayPotentialTempoChange(UI* ui) {
 		// always catch manual adjustments, limit rate of others
 		if (diff > 0.5) {
 			DEF_STACK_STRING_BUF(tempoBPM, 10);
-			playbackHandler.getTempoStringForOLED(tempo, tempoBPM);
+			playbackHandler.getTempoStringForOLED(tempo, tempoBPM, true);
 			displayTempoBPM(deluge::hid::display::OLED::main, tempoBPM, true);
+			// this will only update if the tempo change will result in a change in the displayed time
+			sessionView.displayArrangementPositionAndLength(deluge::hid::display::OLED::main,
+			                                                ArrangementUpdateSource::TEMPO_CHANGED);
 			deluge::hid::display::OLED::markChanged();
 			lastDisplayedTempo = tempo;
 		}
 	}
 }
 
-/// display number of bars or quarter notes remaining until a launch event
+// display number of bars or quarter notes remaining until a launch event (7SEG)
 int32_t SessionView::displayLoopsRemainingPopup(bool ephemeral) {
-	int32_t sixteenthNotesRemaining = session.getNumSixteenthNotesRemainingTilLaunch();
+	int32_t sixteenth_notes_remaining = session.getNumSixteenthNotesRemainingTilLaunch();
 	// only show pop-up if you're not in any other UI mode
 	if (currentUIMode == UI_MODE_NONE) {
-		if (sixteenthNotesRemaining > 0) {
-			DEF_STACK_STRING_BUF(popupMsg, 40);
-			if (sixteenthNotesRemaining > 16) {
-				int32_t barsRemaining = ((sixteenthNotesRemaining - 1) / 16) + 1;
-				if (display->haveOLED()) {
-					popupMsg.append("Bars Remaining: ");
-				}
-				popupMsg.appendInt(barsRemaining);
+		if (sixteenth_notes_remaining > 0) {
+			DEF_STACK_STRING_BUF(popupMsg, 10);
+			if (sixteenth_notes_remaining > 16) {
+				int32_t bars_remaining = ((sixteenth_notes_remaining - 1) / 16) + 1;
+				popupMsg.appendInt(bars_remaining);
 			}
 			else {
-				int32_t quarterNotesRemaining = ((sixteenthNotesRemaining - 1) / 4) + 1;
-				if (display->haveOLED()) {
-					popupMsg.append("Beats Remaining: ");
-				}
-				popupMsg.appendInt(quarterNotesRemaining);
+				int32_t quarter_notes_remaining = ((sixteenth_notes_remaining - 1) / 4) + 1;
+				popupMsg.appendInt(quarter_notes_remaining);
 			}
-			if (display->haveOLED() && !ephemeral) {
-				deluge::hid::display::OLED::clearMainImage();
-				deluge::hid::display::OLED::drawPermanentPopupLookingText(popupMsg.c_str());
-				deluge::hid::display::OLED::sendMainImage();
+			display->displayPopup(popupMsg.c_str(), 1, true);
+		}
+	}
+	return sixteenth_notes_remaining;
+}
+
+// Utility function to format numbers in exponential notation for compact display
+static bool formatCompactNumber(StringBuf& buffer, int32_t number, int32_t limit) {
+	if (number < limit) {
+		buffer.appendInt(number);
+		return false; // Normal notation used
+	}
+
+	// Calculate exponential notation (e.g., 1245 -> 1e3, 34256 -> 3e4)
+	int32_t exponent = 0;
+	int32_t mantissa = number;
+
+	while (mantissa >= 10) {
+		mantissa /= 10;
+		exponent++;
+	}
+
+	buffer.appendInt(mantissa);
+	buffer.append("e");
+	buffer.appendInt(exponent);
+	return true; // Exponential notation used
+}
+
+// display loops (e.g. L11, L10...L3, L2) or bars:beats (e.g. 10:4, 10:3, 10:2, 10:1, 9:4, etc.)
+// countdown until launch event (OLED)
+int32_t SessionView::displayLoopsRemaining(bool clear_area, bool force_redraw) {
+	static int32_t cached_loops_remaining = 0;
+	static int32_t cached_bars_remaining = 0;
+	static int32_t cached_beats_remainder = 0;
+	static int32_t cached_sixteenth_notes_remaining = 0;
+
+	const int32_t sixteenth_notes_remaining = session.getNumSixteenthNotesRemainingTilLaunch();
+
+	if (force_redraw) {
+		cached_loops_remaining = 0;
+		cached_bars_remaining = 0;
+		cached_beats_remainder = 0;
+		cached_sixteenth_notes_remaining = 0;
+	}
+	const int32_t loops_remaining = session.numRepeatsTilLaunch;
+	bool show_loop_count_indicator = false;
+	DEF_STACK_STRING_BUF(remaining, 6);
+	if (loops_remaining > 8) { // called before we get to the graphics routine
+		if (loops_remaining == cached_loops_remaining) {
+			return sixteenth_notes_remaining; // easy early exit check
+		}
+		remaining.append("L");
+		remaining.appendInt(loops_remaining); // easier to keep track of this way.
+		cached_loops_remaining = loops_remaining;
+	}
+	else {
+		if (sixteenth_notes_remaining == cached_sixteenth_notes_remaining) {
+			return sixteenth_notes_remaining; // easy early exit check
+		}
+		cached_sixteenth_notes_remaining = sixteenth_notes_remaining;
+		// Calculate bars remaining once
+
+		bool show_bars_only = (sixteenth_notes_remaining > 1584); // if bars_remaining > 99
+
+		if (!show_bars_only) {
+			// For smaller counts, calculate time per bar to decide display format
+			float time_per_tick = playbackHandler.getTimePerInternalTickFloat();
+			float time_per_bar = time_per_tick * currentSong->getBarLength() / kSampleRate;
+
+			show_bars_only = (time_per_bar < 1);
+		}
+
+		if (show_bars_only) {
+			int32_t bars_remaining = ((sixteenth_notes_remaining - 1) / 16) + 1;
+			if (bars_remaining == cached_bars_remaining) {
+				return sixteenth_notes_remaining;
+			}
+			cached_bars_remaining = bars_remaining;
+			if (bars_remaining > 999 && loops_remaining > 1) {
+				remaining.append("L");
+				remaining.appendInt(loops_remaining);
 			}
 			else {
-				display->displayPopup(popupMsg.c_str(), 1, true);
+				formatCompactNumber(remaining, bars_remaining, 10000);
+				if (loops_remaining > 1 && loops_remaining != cached_loops_remaining) {
+					show_loop_count_indicator = true;
+				}
+			}
+		}
+		else { // Display as bars:beats format
+			int32_t quarter_notes_remainder = (((sixteenth_notes_remaining - 1) % 16) / 4) + 1;
+			if (quarter_notes_remainder == cached_beats_remainder) {
+				// Beat hasn't changed, no need to update. This takes the place of the bars_remaining check.
+				return sixteenth_notes_remaining;
+			}
+			cached_beats_remainder = quarter_notes_remainder;
+			if (sixteenth_notes_remaining > 16) { // 1 < bars < 100
+				int32_t bars_remaining = ((sixteenth_notes_remaining - 1) / 16) + 1;
+				remaining.appendInt(bars_remaining);
+				if (loops_remaining > 1 && loops_remaining != cached_loops_remaining) {
+					show_loop_count_indicator = true;
+				}
+			}
+			else {
+				remaining.append("1");
+			}
+			remaining.append(":");
+			remaining.appendInt(quarter_notes_remainder);
+		}
+	}
+
+	// if a screen update was not needed, it should have returned already.
+	deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
+	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
+	if (clear_area) {
+		canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - 1 - kTextSpacingX * 4, yPos, OLED_MAIN_WIDTH_PIXELS - 1,
+		                      yPos + kTextSpacingY);
+	}
+	if (show_loop_count_indicator && getCurrentUI() != &arrangerView) {
+		int32_t x = OLED_MAIN_WIDTH_PIXELS - 1;
+		int32_t y = yPos - 3;
+		for (int32_t count = 1; count < 9; count++) {
+			if (count < loops_remaining + 1) {
+				canvas.drawPixel(x, y);
+			}
+			else {
+				if (!clear_area) {
+					break;
+				}
+				canvas.clearPixel(x, y);
+			}
+			if (count == 4) {
+				x += 15;
+				y -= 2;
+			}
+			else {
+				x -= 6;
 			}
 		}
 	}
-	return sixteenthNotesRemaining;
+
+	canvas.drawStringAlignRight(remaining.c_str(), yPos, kTextSpacingX, kTextSpacingY);
+	deluge::hid::display::OLED::markChanged();
+
+	return sixteenth_notes_remaining;
 }
 
 uint8_t launchTickSquares[kDisplayHeight] = {255, 255, 255, 255, 255, 255, 255, 255};
@@ -2407,7 +2827,7 @@ const uint8_t launchTickColours[kDisplayHeight] = {0, 0, 0, 0, 0, 0, 0, 0};
 
 // potentially render a playhead in top row of main grid that displays
 // when the next clip launch event is expected occur (e.g. when clips will start or end)
-void SessionView::potentiallyRenderClipLaunchPlayhead(bool reallyNoTickSquare, int32_t sixteenthNotesRemaining) {
+void SessionView::potentiallyRenderClipLaunchPlayhead(bool reallyNoTickSquare, int32_t sixteenth_notes_remaining) {
 	int32_t newTickSquare;
 	const uint8_t* colours = launchTickColours;
 
@@ -2416,8 +2836,8 @@ void SessionView::potentiallyRenderClipLaunchPlayhead(bool reallyNoTickSquare, i
 	                             == RuntimeFeatureStateToggle::On;
 
 	// render last 16 notes
-	if (renderPlayhead && (sixteenthNotesRemaining > 0 && sixteenthNotesRemaining <= kDisplayWidth)) {
-		newTickSquare = kDisplayWidth - sixteenthNotesRemaining;
+	if (renderPlayhead && (sixteenth_notes_remaining > 0 && sixteenth_notes_remaining <= kDisplayWidth)) {
+		newTickSquare = kDisplayWidth - sixteenth_notes_remaining;
 
 		launchTickSquares[kDisplayHeight - 1] = newTickSquare;
 	}
@@ -2934,6 +3354,28 @@ void SessionView::finishedTransitioningHere() {
 	PadLEDs::timerRoutine(); // What... why? This would normally get called from that...
 }
 
+void SessionView::notifyPlaybackBegun() {
+	if (!display->haveOLED()) {
+		return;
+	}
+	display_playback_time = Buttons::isButtonPressed(deluge::hid::button::SHIFT);
+	if (display_playback_time) {
+		session_playback_started_at_tick = AudioEngine::audioSampleTimer;
+	}
+	else if (elapsed_playback_seconds) { // clear out old time display if it's still there
+		displayTimeString(hid::display::OLED::main, nullptr, true, 6);
+		deluge::hid::display::OLED::markChanged();
+	}
+	cached_playback_tick = 0;
+	elapsed_playback_seconds = 0;
+
+	if (display_playback_time) {
+		String time_string = secondsToTimeString(0);
+		displayTimeString(hid::display::OLED::main, time_string.get(), true, 6);
+		deluge::hid::display::OLED::markChanged();
+	}
+}
+
 void SessionView::playbackEnded() {
 	if (currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid) {
 		requestRendering(this, 0xFFFFFFFF, 0xFFFFFFFF);
@@ -3119,7 +3561,10 @@ void SessionView::renderLayoutChange(bool displayPopup) {
 		currentSong->songGridScrollX = 0;
 		currentSong->songGridScrollY = 0;
 	}
-
+	if (display->haveOLED()) {
+		// needed when there are differences between the views
+		renderViewDisplay();
+	}
 	requestRendering(&sessionView, 0xFFFFFFFF, 0xFFFFFFFF);
 	view.flashPlayEnable();
 	if (currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid) {

@@ -126,13 +126,16 @@ public:
 	void grabVelocityToLevelFromMIDICableAndSetupPatchingForAllParamManagersForDrum(MIDICable& cable, SoundDrum* drum,
 	                                                                                Kit* kit);
 	void grabVelocityToLevelFromMIDICableAndSetupPatchingForEverything(MIDICable& cable);
-	void getCurrentRootNoteAndScaleName(StringBuf& buffer);
 	void displayCurrentRootNoteAndScaleName();
+	void getCurrentRootNote(StringBuf& buffer);
+	void getCurrentScaleName(StringBuf& buffer);
+	void displayCurrentRootNote();
+	// void displayCurrentScaleName();
 
 	// Scale-related methods
 
 	/// Changes to next applicable scale.
-	Scale cycleThroughScales();
+	Scale cycleThroughScales(int32_t offset = 1);
 	/// Returns current scale
 	Scale getCurrentScale();
 	/// Changes to requested scale, will return the scale if successfull, or NO_SCALE if change
@@ -438,6 +441,7 @@ public:
 	// Tempo automation
 	void clearTempoAutomation();
 	void updateBPMFromAutomation();
+	bool hasTempoAutomation();
 
 	float calculateBPM() {
 		float timePerTimerTick = getTimePerTimerTickFloat();

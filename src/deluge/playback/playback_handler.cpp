@@ -2362,7 +2362,7 @@ void PlaybackHandler::displayTempoBPM(float tempoBPM) {
 			deluge::hid::display::OLED::markChanged();
 		}
 		else {
-			text.append("Tempo: ");
+			text.append("Tempo\n");
 			getTempoStringForOLED(tempoBPM, text);
 			display->popupTextTemporary(text.c_str(), PopupType::TEMPO);
 			if (getCurrentUI() == &instrumentClipView) {

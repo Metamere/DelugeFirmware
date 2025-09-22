@@ -2162,39 +2162,34 @@ void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& 
                                      int32_t screen_indicator_width, int32_t scroll_indicator_position,
                                      bool clear_area) {
 	const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 27;
+	const int32_t yPos2 = yPos + 2;
 
 	if (clear_area) {
-		// Clear horizontal strip for progress bar lines
-		for (int32_t x = bar_width; x < OLED_MAIN_WIDTH_PIXELS; ++x) {
-			canvas.clearPixel(x, yPos);
-			canvas.clearPixel(x, yPos + 1);
-		}
+		// Clear horizontal strip for progress bar lines, but only to the right of it.
+		canvas.clearAreaExact(bar_width, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos2);
 	}
 
 	// draw quarter markers and end marker
 	const int32_t half_width = OLED_MAIN_WIDTH_PIXELS >> 1;
 	const int32_t quarter_width = half_width >> 1;
 	const int32_t three_quarters_width = half_width + quarter_width;
-	canvas.drawPixel(OLED_MAIN_WIDTH_PIXELS - 1, yPos);
-	canvas.drawPixel(OLED_MAIN_WIDTH_PIXELS - 1, yPos + 1);
+	canvas.drawVerticalLine(OLED_MAIN_WIDTH_PIXELS - 1, yPos, yPos2);
 	if (bar_width < three_quarters_width) {
-		canvas.drawPixel(three_quarters_width, yPos);
-		canvas.drawPixel(three_quarters_width, yPos + 1);
+		canvas.drawVerticalLine(three_quarters_width, yPos, yPos2);
 	}
 	if (bar_width < half_width) {
-		canvas.drawPixel(half_width, yPos);
-		canvas.drawPixel(half_width, yPos + 1);
+		canvas.drawVerticalLine(half_width, yPos, yPos2);
 	}
 	if (bar_width < quarter_width) {
-		canvas.drawPixel(quarter_width, yPos);
-		canvas.drawPixel(quarter_width, yPos + 1);
+		canvas.drawVerticalLine(quarter_width, yPos, yPos2);
 	}
 
 	// draw progress bar (at 0 width it shows 1 pixel to act as the starting marker)
 	canvas.drawHorizontalLine(yPos, 0, bar_width);
 	canvas.drawHorizontalLine(yPos + 1, 0, bar_width);
+	canvas.drawHorizontalLine(yPos2, 0, bar_width);
 	int32_t bottom_line_indicator_end = bar_width;
-	int32_t overlap;
+	int32_t overlap = 0;
 	if (screen_indicator_width > 0) {
 		bottom_line_indicator_end = bar_width + screen_indicator_width;
 		overlap = bottom_line_indicator_end - (OLED_MAIN_WIDTH_PIXELS - 1);
@@ -2203,16 +2198,21 @@ void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& 
 		}
 		// Draw a dashed indicator line extending from the end of the bar to represent the screen width extent
 		int32_t count = 0;
-		// canvas.drawPixel(bottom_line_indicator_end, yPos); // to make the end point more visible?
+		if (screen_indicator_width > 3) {
+			canvas.drawPixel(bottom_line_indicator_end, yPos2);
+		}
 		for (int32_t x = bottom_line_indicator_end; x > bar_width; x--) {
 			count++;
-			if (count % 2 == 1) {
+			if (count % 2 == 0) {
+				canvas.drawPixel(x, yPos2);
+			}
+			else {
 				canvas.drawPixel(x, yPos + 1);
 			}
 		}
 	}
 	if (scroll_indicator_position >= 0) {
-		int32_t top_line_indicator_end;
+		int32_t top_line_indicator_end = 0;
 		bool separated = false; // whether it is locked to the bar position or can split off
 		if (scroll_indicator_position == bar_width) {
 			top_line_indicator_end = bottom_line_indicator_end;
@@ -2226,10 +2226,6 @@ void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& 
 			}
 		}
 
-		const bool draw_bottom =
-		    (separated
-		     && (scroll_indicator_position > bottom_line_indicator_end || top_line_indicator_end < bar_width));
-
 		top_line_indicator_end = std::min((int)top_line_indicator_end, OLED_MAIN_WIDTH_PIXELS - 1);
 		// Draw a dashed indicator line to represent the view window position
 		// for cases like when playback happening in arranger and the regular bar is occupied
@@ -2239,38 +2235,32 @@ void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& 
 			if (count == 0 || x == scroll_indicator_position) {
 				if (negative) {
 					canvas.clearPixel(x, yPos);
-					if (draw_bottom) {
-						canvas.clearPixel(x, yPos + 1);
-					}
+					canvas.clearPixel(x, yPos + 1);
 				}
 				else if (separated || screen_indicator_width > 3) {
 					canvas.drawPixel(x, yPos);
-					if (draw_bottom) {
-						canvas.drawPixel(x, yPos + 1);
-					}
+					canvas.drawPixel(x, yPos + 1);
 				}
 			}
 
 			if (overlap > 0 && (count <= overlap)) {
 				canvas.drawPixel(x, yPos);
-				if (draw_bottom) {
-					canvas.drawPixel(x, yPos + 1);
-				}
+				canvas.drawPixel(x, yPos + 1);
 			}
-			else if (count % 2 == 1) {
-				if (negative) {
+			else if (negative) {
+				if (count % 2 == 1) {
 					canvas.clearPixel(x, yPos);
 				}
 				else {
-					canvas.drawPixel(x, yPos);
-				}
-			}
-			else if (draw_bottom) {
-				if (negative) {
 					canvas.clearPixel(x, yPos + 1);
 				}
-				else {
+			}
+			else {
+				if ((separated && x < bottom_line_indicator_end) || count % 2 == 0) {
 					canvas.drawPixel(x, yPos + 1);
+				}
+				if (count % 2 == 1) {
+					canvas.drawPixel(x, yPos);
 				}
 			}
 			count++;
@@ -2278,17 +2268,16 @@ void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& 
 	}
 
 	// inverted indicators
-	if (bar_width > three_quarters_width) {
-		canvas.clearPixel(three_quarters_width, yPos);
-		canvas.clearPixel(three_quarters_width, yPos + 1);
-	}
-	if (bar_width > half_width) {
-		canvas.clearPixel(half_width, yPos);
-		canvas.clearPixel(half_width, yPos + 1);
-	}
-	if (bar_width > quarter_width) {
-		canvas.clearPixel(quarter_width, yPos);
-		canvas.clearPixel(quarter_width, yPos + 1);
+	for (int32_t y = yPos2; y >= yPos; y--) {
+		if (bar_width > three_quarters_width) {
+			canvas.clearPixel(three_quarters_width, y);
+		}
+		if (bar_width > half_width) {
+			canvas.clearPixel(half_width, y);
+		}
+		if (bar_width > quarter_width) {
+			canvas.clearPixel(quarter_width, y);
+		}
 	}
 }
 

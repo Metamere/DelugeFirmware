@@ -452,10 +452,6 @@ moveAfterClipInstance:
 	else if (b == X_ENC) {
 		horizontalEncoderPressed = on;
 		if (on) {
-			// Show current zoom level
-			if (isNoUIModeActive() && (currentSong->sessionLayout != SessionLayoutType::SessionLayoutTypeGrid)) {
-				displayZoomLevel();
-			}
 			enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
 		}
 
@@ -2070,7 +2066,7 @@ void SessionView::renderViewDisplay() {
 	    (getCurrentUI() == &sessionView && currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid);
 
 	if (!grid_view) {
-		displayZoomLevel(false, false);
+		displayZoomLevel(true, false);
 	}
 	deluge::hid::display::OLED::markChanged();
 }
@@ -2098,12 +2094,6 @@ void SessionView::displayTempoBPM(deluge::hid::display::oled_canvas::Canvas& can
 // then call the functions to do so if needed.
 void SessionView::displayArrangementPositionAndLength(deluge::hid::display::oled_canvas::Canvas& canvas,
                                                       ArrangementUpdateSource update_source, bool clear_area) {
-
-	if (getRootUI() == &automationView) {
-		// it would be useful in automation view, but the info displayed will need to be rearranged/condensed
-		// and some bugs will need to be worked out (delayed updates from scroll, no updates from zoom)
-		return;
-	}
 
 	// Get the display result with all the information and flags.
 	ArrangementDisplayResult result = arrangerView.calculateArrangementPositionAndLength(update_source);
@@ -2188,6 +2178,7 @@ void SessionView::displayProgressBar(deluge::hid::display::oled_canvas::Canvas& 
 	canvas.drawHorizontalLine(yPos, 0, bar_width);
 	canvas.drawHorizontalLine(yPos + 1, 0, bar_width);
 	canvas.drawHorizontalLine(yPos2, 0, bar_width);
+
 	int32_t bottom_line_indicator_end = bar_width;
 	int32_t overlap = 0;
 	if (screen_indicator_width > 0) {

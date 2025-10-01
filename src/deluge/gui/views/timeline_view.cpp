@@ -20,6 +20,8 @@
 #include "extern.h"
 #include "gui/ui/load/load_pattern_ui.h"
 #include "gui/views/arranger_view.h"
+#include "gui/views/audio_clip_view.h"
+#include "gui/views/instrument_clip_view.h"
 #include "gui/views/session_view.h"
 #include "gui/views/view.h"
 #include "hid/button.h"
@@ -33,6 +35,7 @@
 #include "model/song/song.h"
 #include "processing/engines/audio_engine.h"
 #include <algorithm>
+#include <playback/playback_handler.h>
 #include <string.h>
 
 void TimelineView::scrollFinished() {
@@ -72,7 +75,8 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 		if (on) {
 			// Show current zoom level
 			if (isNoUIModeActive() && getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
-				displayZoomLevel();
+				bool is_clip_view = (getCurrentUI() == &instrumentClipView || getCurrentUI() == &audioClipView);
+				displayZoomLevel(false, false, !is_clip_view);
 			}
 
 			enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
@@ -121,12 +125,12 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 	return ActionResult::DEALT_WITH;
 }
 
-void TimelineView::displayZoomLevel(bool just_popup, bool clear_area) {
+void TimelineView::displayZoomLevel(bool permanent, bool clear_area, bool centered_notification) {
 	DEF_STACK_STRING_BUF(text, 30);
 	currentSong->getNoteLengthName(text, currentSong->xZoom[getNavSysId()], "-notes", true);
 
-	if (display->haveOLED() && !just_popup) {
-		if (getRootUI() == &arrangerView || getRootUI() == &sessionView) {
+	if (display->haveOLED()) {
+		if (permanent) {
 			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 
 			const int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
@@ -144,11 +148,11 @@ void TimelineView::displayZoomLevel(bool just_popup, bool clear_area) {
 		}
 		else {
 			static_cast<deluge::hid::display::OLED*>(display)->displayNotification(text.data(), std::nullopt, true,
-			                                                                       false, false);
+			                                                                       centered_notification, false);
 		}
 	}
 	else {
-		display->displayPopup(text.data(), just_popup ? 3 : 0, true);
+		display->displayPopup(text.data(), 0, true);
 	}
 }
 
@@ -217,11 +221,13 @@ ActionResult TimelineView::horizontalEncoderAction(int32_t offset) {
 			int32_t newScroll = currentSong->xScroll[navSysId] / (newZoom * kDisplayWidth) * (newZoom * kDisplayWidth);
 
 			initiateXZoom(zoomMagnitude, newScroll, oldXZoom);
-			displayZoomLevel();
-			if (display->haveOLED() && getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+			const bool is_clip_view = (getCurrentUI() == &instrumentClipView || getCurrentUI() == &audioClipView);
+			displayZoomLevel(false, false, !is_clip_view);
+			if (display->haveOLED() && is_clip_view) { //&& getCurrentUI() == &instrumentClipView) {
 				// update the clip length display to the appropriate precision for the current zoom level
 				// it might not need an update with every zoom level change,
 				// but it won't be updated too often so no need to track and prevent
+				// doesn't work right on bars and beats since it has the file path taking up the bottom row.
 				displayNumberOfBarsAndBeats(currentSong->getCurrentClip()->getLoopLength(),
 				                            currentSong->xZoom[NAVIGATION_CLIP], false, "LONG", false);
 			}
@@ -267,55 +273,71 @@ void TimelineView::displayScrollPos() {
 	displayNumberOfBarsAndBeats(currentSong->xScroll[navSysId], quantization, true, "FAR");
 }
 
-void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantization, bool countFromOne,
-                                               char const* tooLongText, bool popup) {
+void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantization, bool count_from_one,
+                                               char const* too_long_text, bool popup) {
 
-	uint32_t oneBar = currentSong->getBarLength();
+	uint32_t one_bar = currentSong->getBarLength();
 
-	uint32_t whichBar = number / oneBar;
+	uint32_t which_bar = number / one_bar;
 
-	uint32_t posWithinBar = number - whichBar * oneBar;
+	uint32_t pos_within_bar = number - which_bar * one_bar;
 
-	uint32_t whichBeat = posWithinBar / (oneBar >> 2);
+	uint32_t which_beat = pos_within_bar / (one_bar >> 2);
 
-	uint32_t posWithinBeat = posWithinBar - whichBeat * (oneBar >> 2);
+	uint32_t pos_within_beat = pos_within_bar - which_beat * (one_bar >> 2);
 
-	uint32_t whichSubBeat = posWithinBeat / (oneBar >> 4);
+	uint32_t which_sub_beat = pos_within_beat / (one_bar >> 4);
 
-	if (countFromOne) {
-		whichBar++;
-		whichBeat++;
-		whichSubBeat++;
+	if (count_from_one) {
+		which_bar++;
+		which_beat++;
+		which_sub_beat++;
 	}
 
 	if (display->haveOLED()) {
-		if (popup) {
-			char buffer[15];
-			sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
-			if (getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+		// D_PRINTLN("number: %d, quantization: %d", number, quantization);
+		char buffer[11];
+		if (popup) {           // for scroll position display notification
+			if (number == 0) { // we could have skipped all the calculations for this case, but meh.
+				sprintf(buffer, "%s", "START");
+			}
+			else if (quantization > 192 || which_bar > 999999) { // 32nd-notes, so > half note per screen
+				sprintf(buffer, "%d", which_bar);
+			}
+			else if (quantization > 48 || which_bar > 9999) { // 128th-notes, so > eight note per screen
+				sprintf(buffer, "%d:%d", which_bar, which_beat);
+			}
+			else {
+				sprintf(buffer, "%d:%d:%d", which_bar, which_beat, which_sub_beat);
+			}
+			// if (getCurrentUI() != &arrangerView && getCurrentUI() != &sessionView) {
+			if (getCurrentUI() == &instrumentClipView || getCurrentUI() == &audioClipView) { // align left side
 				static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true,
 				                                                                       false, false);
 			}
-			else {
+			else { // centered
 				static_cast<deluge::hid::display::OLED*>(display)->displayNotification(buffer, std::nullopt, true, true,
 				                                                                       false);
 			}
 		}
-		else {
-			char buffer[11];
+		else {                         // for instrument clip view's clip length display
 			if (quantization >= 384) { // one bar per pad
-				sprintf(buffer, "%d", whichBar);
+				sprintf(buffer, "%d", which_bar);
 			}
-			else if (whichBar > 999999 || quantization >= 96) { // quarter notes
-				sprintf(buffer, "%d:%d", whichBar, whichBeat);
+			else if (which_bar > 999999 || quantization >= 96) { // quarter notes
+				sprintf(buffer, "%d:%d", which_bar, which_beat);
 			}
 			else {
-				sprintf(buffer, "%d:%d:%d", whichBar, whichBeat, whichSubBeat);
+				sprintf(buffer, "%d:%d:%d", which_bar, which_beat, which_sub_beat);
+			}
+			if (getCurrentUI() == &audioClipView && !playbackHandler.playbackState) {
+				// the scrolling file path would interfere
+				display->popupTextTemporary(buffer);
+				return;
 			}
 			deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 			int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
-			canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS - 1 - kTextSpacingX * 9, yPos, OLED_MAIN_WIDTH_PIXELS - 1,
-			                      yPos + kTextSpacingY);
+			canvas.clearAreaExact(OLED_MAIN_WIDTH_PIXELS / 2, yPos, OLED_MAIN_WIDTH_PIXELS - 1, yPos + kTextSpacingY);
 			canvas.drawStringAlignRight(buffer, yPos, kTextSpacingX, kTextSpacingY);
 			deluge::hid::display::OLED::markChanged();
 		}
@@ -325,37 +347,37 @@ void TimelineView::displayNumberOfBarsAndBeats(uint32_t number, uint32_t quantiz
 
 		uint8_t dotMask = 0b10000000;
 
-		if (whichBar >= 10000) {
-			strcpy(text, tooLongText);
+		if (which_bar >= 10000) {
+			strcpy(text, too_long_text);
 		}
 		else {
 			strcpy(text, "    ");
 
-			if (whichBar < 10) {
-				intToString(whichBar, &text[1]);
+			if (which_bar < 10) {
+				intToString(which_bar, &text[1]);
 			}
 			else {
-				intToString(whichBar, &text[0]);
+				intToString(which_bar, &text[0]);
 			}
 
-			if (whichBar < 100) {
+			if (which_bar < 100) {
 				dotMask |= 1 << 2;
 
-				if (quantization >= (oneBar >> 2)) {
+				if (quantization >= (one_bar >> 2)) {
 					text[2] = ' ';
 					goto putBeatCountOnFarRight;
 				}
 
-				intToString(whichBeat, &text[2]);
+				intToString(which_beat, &text[2]);
 				dotMask |= 1 << 1;
 
-				intToString(whichSubBeat, &text[3]);
+				intToString(which_sub_beat, &text[3]);
 			}
-			else if (whichBar < 1000) {
+			else if (which_bar < 1000) {
 				dotMask |= 1 << 1;
 
 putBeatCountOnFarRight:
-				intToString(whichBeat, &text[3]);
+				intToString(which_beat, &text[3]);
 			}
 		}
 

@@ -703,10 +703,10 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
 	int32_t startY = OLED_MAIN_TOPMOST_PIXEL;
 	int32_t popup_width = OLED_MAIN_WIDTH_PIXELS - 1;
 	if (alignment_bottom) {
-		// the - 2 prevents it from going out of bounds below, which will corrupt the bounds and cause the popup to
-		// disappear if the screen is updated.
 		popupHeight--;
 		startY = OLED_MAIN_HEIGHT_PIXELS - popupHeight - 1;
+		// the - 1 prevents it from going out of bounds below, which will corrupt the bounds and cause the popup to
+		// disappear if the screen is updated.
 		if (!full_width) {
 			popup_width -= kTextSpacingX * 10;
 			if (centered) {
@@ -729,7 +729,7 @@ void OLED::displayNotification(std::string_view paramTitle, std::optional<std::s
 	}
 	else if (FlashStorage::accessibilityMenuHighlighting != MenuHighlighting::NO_INVERSION) {
 		// Draw the title and value
-		popup.drawString(titleBuf.data(), paddingLeft, textY - 1, kTextSpacingX, kTextSpacingY);
+		popup.drawString(titleBuf.data(), paddingLeft, textY, kTextSpacingX, kTextSpacingY);
 		if (valueWidth > 0) {
 			popup.drawChar(':', paddingLeft + titleWidth, textY, kTextSpacingX, kTextSpacingY);
 			popup.drawString(paramValue.value().data(), paddingLeft + titleWidth + 8, textY, kTextSpacingX,

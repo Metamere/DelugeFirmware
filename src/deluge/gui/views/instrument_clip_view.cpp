@@ -747,7 +747,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 						doubleClipLengthAction();
 					}
 					else {
-						displayZoomLevel();
+						displayZoomLevel(false, false, false);
 					}
 				}
 			}
@@ -1712,14 +1712,15 @@ void InstrumentClipView::doubleClipLengthAction() {
 		action->xZoomClip[AFTER] = currentSong->xZoom[NAVIGATION_CLIP];
 		action->xScrollClip[AFTER] = currentSong->xScroll[NAVIGATION_CLIP];
 	}
-
-	displayZoomLevel();
+	displayZoomLevel(false, false, false);
 
 	if (display->haveOLED()) {
 		// display->consoleText("Clip multiplied"); // not needed any longer, as you can see the bars count double.
 		displayNumberOfBarsAndBeats(getCurrentClip()->getLoopLength(), currentSong->xZoom[NAVIGATION_CLIP], false,
-		                            "LONG", !display->haveOLED());
+		                            "LONG", false);
+		// if(getCurrentUI() != &automationView){
 		view.displayClipDuration(getCurrentClip());
+		// }
 	}
 }
 

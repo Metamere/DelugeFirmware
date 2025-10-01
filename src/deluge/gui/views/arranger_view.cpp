@@ -3356,7 +3356,6 @@ void ArrangerView::displayScrollPos() {
 			uint32_t quantization = currentSong->xZoom[NAVIGATION_ARRANGEMENT];
 			displayNumberOfBarsAndBeats(getDraggedClipPosition(), quantization, true, "FAR");
 			return;
-			// }
 		}
 		else { // Default behavior - show scroll position with regular centered popup
 			TimelineView::displayScrollPos();

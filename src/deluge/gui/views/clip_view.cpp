@@ -173,8 +173,7 @@ ActionResult ClipView::horizontalEncoderAction(int32_t offset) {
 		uint32_t newLength = changeClipLength(offset, oldLength, action);
 
 		// update the clip length display
-		displayNumberOfBarsAndBeats(newLength, currentSong->xZoom[NAVIGATION_CLIP], false, "LONG",
-		                            !display->haveOLED());
+		displayNumberOfBarsAndBeats(newLength, currentSong->xZoom[NAVIGATION_CLIP], false, "LONG", false);
 		view.displayClipDuration(getCurrentClip());
 
 		if (action) {

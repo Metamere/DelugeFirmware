@@ -222,8 +222,8 @@ ActionResult TimelineView::horizontalEncoderAction(int32_t offset) {
 
 			initiateXZoom(zoomMagnitude, newScroll, oldXZoom);
 			const bool is_clip_view = (getCurrentUI() == &instrumentClipView || getCurrentUI() == &audioClipView);
-			displayZoomLevel(false, false, !is_clip_view);
-			if (display->haveOLED() && is_clip_view) { //&& getCurrentUI() == &instrumentClipView) {
+			displayZoomLevel(!is_clip_view, true, !is_clip_view);
+			if (display->haveOLED() && is_clip_view) {
 				// update the clip length display to the appropriate precision for the current zoom level
 				// it might not need an update with every zoom level change,
 				// but it won't be updated too often so no need to track and prevent

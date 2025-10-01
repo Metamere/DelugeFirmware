@@ -218,7 +218,7 @@ private:
 	                              uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth], int32_t xDisplay,
 	                              bool isMIDICVDrum);
 	void renderDisplayOLED(Clip* clip, Output* output, OutputType outputType, int32_t knobPosLeft = kNoSelection,
-	                       int32_t knobPosRight = kNoSelection);
+	                       int32_t knobPosRight = kNoSelection, bool mode_change = false);
 	void renderAutomationOverviewDisplayOLED(deluge::hid::display::oled_canvas::Canvas& canvas, Output* output,
 	                                         OutputType outputType);
 	void renderDisplay7SEG(Clip* clip, Output* output, OutputType outputType, int32_t knobPosLeft = kNoSelection,

@@ -66,7 +66,8 @@ private:
 public:
 	// OLED/7Seg Display
 	void renderAutomationEditorDisplayOLED(deluge::hid::display::oled_canvas::Canvas& canvas, Clip* clip,
-	                                       OutputType outputType, int32_t knobPosLeft, int32_t knobPosRight);
+	                                       OutputType outputType, int32_t knobPosLeft, int32_t knobPosRight,
+	                                       bool first_render, bool mode_change);
 	void renderAutomationEditorDisplay7SEG(Clip* clip, OutputType outputType, int32_t knobPosLeft,
 	                                       bool modEncoderAction);
 	void renderAutomationDisplayForMultiPadPress(ModelStackWithAutoParam* modelStackWithParam, Clip* clip,

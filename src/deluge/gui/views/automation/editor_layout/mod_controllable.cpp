@@ -250,70 +250,95 @@ void AutomationEditorLayoutModControllable::renderAutomationUnipolarSquare(
 
 void AutomationEditorLayoutModControllable::renderAutomationEditorDisplayOLED(
     deluge::hid::display::oled_canvas::Canvas& canvas, Clip* clip, OutputType outputType, int32_t knobPosLeft,
-    int32_t knobPosRight) {
-
-	// display parameter name
-	DEF_STACK_STRING_BUF(parameterName, 30);
-	getAutomationParameterName(clip, outputType, parameterName);
+    int32_t knobPosRight, bool first_render, bool mode_change) {
 
 	int32_t yPos = OLED_MAIN_TOPMOST_PIXEL + 3;
-	canvas.drawStringCentredShrinkIfNecessary(parameterName.c_str(), yPos, kTextSpacingX, kTextSpacingY);
+	if (first_render) {
 
-	// display automation status
-	yPos = yPos + 12;
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithAutoParam* modelStackWithParam = nullptr;
 
-	char modelStackMemory[MODEL_STACK_MAX_SIZE];
-	ModelStackWithAutoParam* modelStackWithParam = nullptr;
+		if (getOnArrangerView()) {
+			ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
+			    currentSong->setupModelStackWithSongAsTimelineCounter(modelStackMemory);
 
-	if (getOnArrangerView()) {
-		ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
-		    currentSong->setupModelStackWithSongAsTimelineCounter(modelStackMemory);
-
-		modelStackWithParam =
-		    currentSong->getModelStackWithParam(modelStackWithThreeMainThings, currentSong->lastSelectedParamID);
-	}
-	else {
-		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
-		modelStackWithParam = getModelStackWithParamForClip(modelStack, clip);
-	}
-
-	char const* isAutomated;
-
-	// check if Parameter is currently automated so that the automation status can be drawn on
-	// the screen with the Parameter Name
-	if (modelStackWithParam && modelStackWithParam->autoParam) {
-		if (modelStackWithParam->autoParam->isAutomated()) {
-			isAutomated = l10n::get(l10n::String::STRING_FOR_AUTOMATION_ON);
+			modelStackWithParam =
+			    currentSong->getModelStackWithParam(modelStackWithThreeMainThings, currentSong->lastSelectedParamID);
 		}
 		else {
-			isAutomated = l10n::get(l10n::String::STRING_FOR_AUTOMATION_OFF);
+			ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+			modelStackWithParam = getModelStackWithParamForClip(modelStack, clip);
+		}
+
+		// display parameter name
+		DEF_STACK_STRING_BUF(parameterName, 30);
+		getAutomationParameterName(clip, outputType, parameterName);
+		int32_t text_height =
+		    canvas.drawStringCentredShrinkIfNecessary(parameterName.c_str(), yPos, kTextSpacingX, kTextSpacingY);
+
+		// automation indicator
+		const bool automated =
+		    (modelStackWithParam && modelStackWithParam->autoParam) && modelStackWithParam->autoParam->isAutomated();
+		if (automated) {
+			const int32_t stringWidth = std::min((int32_t)(OLED_MAIN_WIDTH_PIXELS - 1),
+			                                     canvas.getStringWidthInPixels(parameterName.c_str(), text_height));
+			const int32_t x_margin = (OLED_MAIN_WIDTH_PIXELS - 1 - stringWidth) / 2;
+			yPos += 10;
+			canvas.drawHorizontalLine(yPos, x_margin, OLED_MAIN_WIDTH_PIXELS - 1 - x_margin);
 		}
 	}
 
-	canvas.drawStringCentred(isAutomated, yPos, kTextSpacingX, kTextSpacingY);
+	yPos = OLED_MAIN_TOPMOST_PIXEL + 18;
 
-	// display parameter value
-	yPos = OLED_MAIN_TOPMOST_PIXEL + 29;
+	// display parameter value(s)
+
+	const int32_t mid_point = OLED_MAIN_WIDTH_PIXELS / 2;
+	const int32_t row2_pos = yPos + 13;
+	if (mode_change) {
+		canvas.clearAreaExact(mid_point - kTextSpacingX * 7 - 3, yPos, mid_point + kTextSpacingX * 3 + 3,
+		                      row2_pos + kTextSpacingY);
+	}
+
+	const int32_t knob_position = (knobPosRight != kNoSelection) ? knobPosRight : knobPosLeft;
+
+	int32_t x_offset = -2;
+	if (knob_position >= 0) {
+		x_offset++;
+		if (knob_position < 10) {
+			x_offset++;
+		}
+	}
+	else if (knob_position > -10) {
+		x_offset++;
+	}
 
 	if (knobPosRight != kNoSelection) {
-		char bufferLeft[10];
-		bufferLeft[0] = 'L';
-		bufferLeft[1] = ':';
-		bufferLeft[2] = ' ';
-		intToString(knobPosLeft, &bufferLeft[3]);
-		canvas.drawString(bufferLeft, 0, yPos, kTextSpacingX, kTextSpacingY);
+		if (first_render || mode_change) {
+			canvas.drawString("L:", mid_point - kTextSpacingX * 6 - 3, row2_pos, kTextSpacingX, kTextSpacingY);
+			canvas.drawString(":R", mid_point + kTextSpacingX * 1 + 3, yPos, kTextSpacingX, kTextSpacingY);
+		}
+		else {
+			canvas.clearAreaExact(mid_point - kTextSpacingX * 3 - 6, yPos, mid_point + kTextSpacingX,
+			                      row2_pos + kTextSpacingY);
+		}
+		char bufferLeft[4];
+		intToString(knobPosLeft, bufferLeft);
+		char bufferRight[4];
+		intToString(knobPosRight, bufferRight);
 
-		char bufferRight[10];
-		bufferRight[0] = 'R';
-		bufferRight[1] = ':';
-		bufferRight[2] = ' ';
-		intToString(knobPosRight, &bufferRight[3]);
-		canvas.drawStringAlignRight(bufferRight, yPos, kTextSpacingX, kTextSpacingY);
+		canvas.drawString(bufferLeft, mid_point - kTextSpacingX * 3 - 6, row2_pos, kTextSpacingX, kTextSpacingY);
+		canvas.drawString(bufferRight, mid_point + kTextSpacingX * x_offset, yPos, kTextSpacingX, kTextSpacingY);
 	}
 	else {
-		char buffer[5];
+		if (!first_render) {
+			const int32_t w3 = kTextSpacingX * 2;
+			canvas.clearAreaExact(mid_point - w3, yPos, mid_point + w3, yPos + kTextSpacingY);
+		}
+		char buffer[4];
 		intToString(knobPosLeft, buffer);
-		canvas.drawStringCentred(buffer, yPos, kTextSpacingX, kTextSpacingY);
+
+		canvas.drawString(buffer, mid_point + kTextSpacingX * x_offset, yPos, kTextSpacingX, kTextSpacingY);
+		// canvas.drawString(buffer, yPos, kTextSpacingX, kTextSpacingY);
 	}
 }
 

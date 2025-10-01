@@ -100,7 +100,7 @@ void AutomationEditorLayoutNote::renderNoteEditorDisplayOLED(deluge::hid::displa
 	canvas.drawStringCentred(noteRowName, yPos, kTextSpacingX, kTextSpacingY);
 
 	// display parameter value
-	yPos = yPos + 14;
+	yPos = OLED_MAIN_TOPMOST_PIXEL + 32;
 
 	if (getAutomationParamType() == AutomationParamType::NOTE_VELOCITY) {
 		automationEditorLayoutNoteVelocity.displayParameterValueOLED(canvas, yPos, knobPosLeft, knobPosRight);

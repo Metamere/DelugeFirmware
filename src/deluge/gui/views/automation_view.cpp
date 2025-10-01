@@ -972,12 +972,15 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	static int32_t last_display_value = INT32_MIN;
 	static bool last_mod_encoder_action = false;
 	static uint32_t last_actual_render_time = 0;
+	static bool last_mod_mode = false;
 
 	const uint32_t current_time = AudioEngine::audioSampleTimer;
 
 	// Check if enough time has passed since the last update for visual perception
 	const uint32_t time_since_last_render = current_time - last_actual_render_time;
 	const bool min_time_elapsed = (time_since_last_render > MIN_UPDATE_INTERVAL);
+	bool LR_mode = false;
+	bool mode_change = false;
 
 	if (!min_time_elapsed && !automation_first_render) {
 		return;
@@ -1004,6 +1007,7 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 		}
 		if (knobPosRight != kNoSelection) {
 			knobPosRight = view.calculateKnobPosForDisplay(lastSelectedParamKind, lastSelectedParamID, knobPosRight);
+			LR_mode = true;
 		}
 	}
 
@@ -1012,8 +1016,12 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	                       || (display->have7SEG() && modEncoderAction != last_mod_encoder_action));
 
 	if (!values_changed && !automation_first_render && automationParamType == AutomationParamType::PER_SOUND) {
-		D_PRINTLN("returning 2");
 		return;
+	}
+
+	if (LR_mode != last_mod_mode) {
+		last_mod_mode = LR_mode;
+		mode_change = true;
 	}
 
 	// Update cached values
@@ -1023,8 +1031,7 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 	last_actual_render_time = current_time;
 
 	if (display->haveOLED()) {
-		D_PRINTLN("rendering");
-		renderDisplayOLED(clip, output, outputType, knobPosLeft, knobPosRight);
+		renderDisplayOLED(clip, output, outputType, knobPosLeft, knobPosRight, mode_change);
 	}
 	else {
 		renderDisplay7SEG(clip, output, outputType, knobPosLeft, modEncoderAction);
@@ -1034,18 +1041,20 @@ void AutomationView::renderDisplay(int32_t knobPosLeft, int32_t knobPosRight, bo
 }
 
 void AutomationView::renderDisplayOLED(Clip* clip, Output* output, OutputType outputType, int32_t knobPosLeft,
-                                       int32_t knobPosRight) {
+                                       int32_t knobPosRight, bool mode_change) {
 	deluge::hid::display::oled_canvas::Canvas& canvas = hid::display::OLED::main;
 
-	hid::display::OLED::clearMainImage();
+	if (!inAutomationEditor() || automation_first_render) {
+		hid::display::OLED::clearMainImage();
+	}
 
 	if (onAutomationOverview()) {
 		renderAutomationOverviewDisplayOLED(canvas, output, outputType);
 	}
 	else {
 		if (inAutomationEditor()) {
-			automationEditorLayoutModControllable.renderAutomationEditorDisplayOLED(canvas, clip, outputType,
-			                                                                        knobPosLeft, knobPosRight);
+			automationEditorLayoutModControllable.renderAutomationEditorDisplayOLED(
+			    canvas, clip, outputType, knobPosLeft, knobPosRight, automation_first_render, mode_change);
 		}
 		else {
 			automationEditorLayoutNote.renderNoteEditorDisplayOLED(canvas, (InstrumentClip*)clip, outputType,
@@ -1541,7 +1550,7 @@ bool AutomationView::handleHorizontalEncoderButtonAction(bool on, bool isAudioCl
 				instrumentClipView.doubleClipLengthAction();
 			}
 			else {
-				displayZoomLevel(true);
+				displayZoomLevel(false, false, true);
 			}
 		}
 		// Whether or not we did the "multiply" action above, we need to be in this UI mode, e.g. for

@@ -829,13 +829,14 @@ displayUndoMessage:
 			undo_count = 0;
 		}
 
-		if (undo_count > 0) {
+		if (undo_count > 1) {
 			DEF_STACK_STRING_BUF(undo_count_message, 7);
 			undo_count_message.appendInt(undo_count);
 			display->displayNotification("UNDO", undo_count_message.c_str());
 		}
 		else {
 			display->displayNotification("UNDO", std::nullopt);
+			undo_count = 1;
 		}
 		undo_count++;
 		last_undo_time = AudioEngine::audioSampleTimer;
@@ -860,13 +861,14 @@ void ActionLogger::redo() {
 			redo_count = 0;
 		}
 
-		if (redo_count > 0) {
+		if (redo_count > 1) {
 			DEF_STACK_STRING_BUF(undo_count_message, 7);
 			undo_count_message.appendInt(redo_count);
 			display->displayNotification("REDO", undo_count_message.c_str());
 		}
 		else {
 			display->displayNotification("REDO", std::nullopt);
+			redo_count = 1;
 		}
 		redo_count++;
 		last_redo_time = AudioEngine::audioSampleTimer;

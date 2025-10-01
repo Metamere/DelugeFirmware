@@ -293,39 +293,40 @@ void Canvas::drawStringCentered(StringBuf& stringBuf, int32_t pixelX, int32_t pi
 /// @param string A null-terminated C string
 /// @param textWidth Requested width for each character in the string
 /// @param textHeight Requested height for each character in the string
-void Canvas::drawStringCentredShrinkIfNecessary(char const* string, int32_t pixelY, int32_t textWidth,
-                                                int32_t textHeight) {
+int32_t Canvas::drawStringCentredShrinkIfNecessary(char const* string, int32_t pixelY, int32_t textWidth,
+                                                   int32_t textHeight) {
 	bool shrink = false;
 	std::string_view str{string};
-	int32_t maxTextWidth = (uint8_t)OLED_MAIN_WIDTH_PIXELS / (uint32_t)str.length();
-	if (textWidth > maxTextWidth) {
-		int32_t newHeight = (uint32_t)(textHeight * maxTextWidth) / (uint32_t)textWidth;
-		if (newHeight >= 20) {
-			newHeight = 20;
+	int32_t max_text_width = (uint8_t)OLED_MAIN_WIDTH_PIXELS / (uint32_t)str.length();
+	if (textWidth > max_text_width) {
+		int32_t new_height = (uint32_t)(textHeight * max_text_width) / (uint32_t)textWidth;
+		if (new_height >= 20) {
+			new_height = 20;
 		}
-		else if (newHeight >= 13) {
-			newHeight = 13;
+		else if (new_height >= 13) {
+			new_height = 13;
 		}
-		else if (newHeight >= 10) {
-			newHeight = 10;
+		else if (new_height >= 10) {
+			new_height = 10;
 		}
-		else if (newHeight >= 7) {
-			newHeight = 7;
+		else if (new_height >= 7) {
+			new_height = 7;
 		}
 		else {
-			newHeight = 5;
+			new_height = 5;
 		}
 
-		textWidth = maxTextWidth;
+		textWidth = max_text_width;
 
-		int32_t heightDiff = textHeight - newHeight;
-		pixelY += heightDiff >> 1;
-		textHeight = newHeight;
+		int32_t height_diff = textHeight - new_height;
+		pixelY += height_diff >> 1;
+		textHeight = new_height;
 
 		shrink = true;
 	}
 	int32_t pixelX = (kImageWidth - textWidth * str.length()) >> 1;
 	drawString(str, pixelX, pixelY, textWidth, textHeight, 0, OLED_MAIN_WIDTH_PIXELS, shrink);
+	return textHeight;
 }
 
 void Canvas::drawStringAlignRight(char const* string, int32_t pixelY, int32_t textWidth, int32_t textHeight,

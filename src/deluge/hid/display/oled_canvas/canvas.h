@@ -160,7 +160,8 @@ public:
 	/// @param pixelY The Y coordinate of the top of the string
 	/// @param textWidth Requested width for each character in the string
 	/// @param textHeight Requested height for each character in the string
-	void drawStringCentredShrinkIfNecessary(char const* string, int32_t pixelY, int32_t textWidth, int32_t textHeight);
+	int32_t drawStringCentredShrinkIfNecessary(char const* string, int32_t pixelY, int32_t textWidth,
+	                                           int32_t textHeight);
 
 	/// Draw a string, aligned to the right.
 	///

@@ -5749,14 +5749,16 @@ void Song::getCurrentRootNote(StringBuf& buffer) {
 	int32_t is_natural = 1; // gets modified inside noteCodeToString to be 0 if sharp.
 	noteCodeToString(currentSong->key.rootNote + 12, note_name, &is_natural); // +12 to make the default C0
 
-	// Remove last character if it's '0'. C Major looks better than C0 Major.
+	// Remove trailing '0' only if it's not part of a multi-digit octave (e.g., C0 but not C10). C Major looks better
+	// than C0 Major.
 	int32_t len = strlen(note_name);
-	if (len > 0 && note_name[len - 1] == '0') {
+	if (len > 1 && note_name[len - 1] == '0' && !isdigit(note_name[len - 2])) {
 		note_name[len - 1] = '\0';
 	}
 
 	buffer.append(note_name);
 }
+
 void Song::displayCurrentRootNote() {
 	DEF_STACK_STRING_BUF(note_name, 6);
 	getCurrentRootNote(note_name);

@@ -20,6 +20,7 @@
 #include "extern.h"
 #include "fatfs.hpp"
 #include "gui/colour/colour.h"
+#include "gui/context_menu/scale_selection.h"
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/colour.h"
@@ -880,34 +881,43 @@ ActionResult InstrumentClipView::handleScaleButtonAction(bool on, bool inCardRou
 
 	bool inScaleMode = getCurrentInstrumentClip()->inScaleMode;
 
-	if (on && Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
-		if (!inScaleMode) {
-			commandEnterScaleMode();
+	if (on) {
+		if (Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
+			if (!inScaleMode) {
+				commandEnterScaleMode();
+			}
+			return commandLearnUserScale();
 		}
-		return commandLearnUserScale();
-	}
-	// else if (on && inScaleMode && Buttons::isShiftButtonPressed()) {
-	// 	// If we're note in scale mode, we defer to commands that
-	// 	// will instead enter the scale mode.
-	// 	return commandCycleThroughScales();
-	// }
-	else if (on && oneNoteAuditioning()) {
-		if (inScaleMode) {
-			return commandChangeRootNote(lastAuditionedYDisplay);
+		else if (Buttons::isShiftButtonPressed()) { // open scale selection context menu
+			if (!inScaleMode) {
+				entered_context_menu_from_outside_scale_mode = true;
+				commandEnterScaleMode();
+				display->cancelPopup();
+			}
+			if (context_menu::scaleSelection.setupAndCheckAvailability()) {
+				openUI(&context_menu::scaleSelection);
+				return ActionResult::DEALT_WITH;
+			}
+		}
+		else if (oneNoteAuditioning()) {
+			if (inScaleMode) {
+				return commandChangeRootNote(lastAuditionedYDisplay);
+			}
+			else {
+				return commandEnterScaleModeWithRoot(lastAuditionedYDisplay);
+			}
 		}
 		else {
-			return commandEnterScaleModeWithRoot(lastAuditionedYDisplay);
+			// Otherwise, handle normal scale mode toggle
+			currentUIMode = UI_MODE_SCALE_MODE_BUTTON_PRESSED;
+			toggleScaleModeOnButtonRelease = true;
+			scaleButtonPressTime = AudioEngine::audioSampleTimer;
+			// if you're already in scale mode, display the current scale
+			if (inScaleMode) {
+				currentSong->displayCurrentRootNoteAndScaleName();
+			}
+			return commandFlashRootNote();
 		}
-	}
-	else if (on) {
-		currentUIMode = UI_MODE_SCALE_MODE_BUTTON_PRESSED;
-		toggleScaleModeOnButtonRelease = true;
-		scaleButtonPressTime = AudioEngine::audioSampleTimer;
-		// if you're already in scale mode, display the current scale
-		if (getCurrentInstrumentClip()->inScaleMode) {
-			currentSong->displayCurrentRootNoteAndScaleName();
-		}
-		return commandFlashRootNote();
 	}
 	else {
 		// Button release

@@ -79,6 +79,7 @@ public:
 
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) override;
 	ActionResult handleScaleButtonAction(bool on, bool inCardRoutine);
+	bool entered_context_menu_from_outside_scale_mode{false};
 	bool handleInstrumentChange(OutputType outputType);
 
 	// PAD ACTION pad press / release handling
@@ -102,7 +103,7 @@ public:
 	ActionResult commandCycleThroughScales(int32_t offset);
 	/// Flash the current root note. Part of SCALE down.
 	ActionResult commandFlashRootNote();
-	/// Enter scale mode with selected root. AUDITION + SCALE or SCALE + AUDITION in schromatic mode.
+	/// Enter scale mode with selected root. AUDITION + SCALE or SCALE + AUDITION in chromatic mode.
 	ActionResult commandEnterScaleModeWithRoot(uint8_t root);
 	/// Enter scale mode. SCALE when in chromatic mode.
 	ActionResult commandEnterScaleMode();

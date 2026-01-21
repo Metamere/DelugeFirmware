@@ -179,7 +179,7 @@ enum Entries {
 170: default hold time (1-20)
 171: default swing interval
 172: default disabled scales low byte
-173: default disabled scales high byte
+173: default disabled scales middle byte
 174: accessibilityShortcuts
 175: accessibilityMenuHighlighting
 176: default new clip type
@@ -192,6 +192,7 @@ enum Entries {
 186: defaultLoopRecordingCommand
 188: defaultUseSharps
 189: default patch cable polarity
+190: default disabled scales high byte (for scales 17-24)
 */
 
 uint8_t defaultScale;
@@ -245,7 +246,7 @@ std::bitset<NUM_PRESET_SCALES> defaultDisabledPresetScales;
 // add any more builtin scales, but put all future scales on the SD card, which
 // will have it's own disabled-flags. If we ever add more, we need to spend at least one byte
 // more of flash.
-static_assert(NUM_PRESET_SCALES <= 16);
+static_assert(NUM_PRESET_SCALES <= 24);
 
 bool accessibilityShortcuts = false;
 MenuHighlighting accessibilityMenuHighlighting = MenuHighlighting::FULL_INVERSION;
@@ -306,7 +307,7 @@ void resetSettings() {
 	defaultKeyMenu.lower = 0;
 	defaultKeyMenu.upper = 0;
 
-	defaultScale = 0;
+	defaultScale = MAJOR_SCALE;
 
 	soundEditor.setShortcutsVersion(SHORTCUTS_VERSION_3);
 
@@ -527,7 +528,7 @@ void readSettings() {
 		defaultKeyMenu.lower = 0;
 		defaultKeyMenu.upper = 0;
 
-		defaultScale = 0;
+		defaultScale = MAJOR_SCALE;
 	}
 
 	else {
@@ -750,7 +751,9 @@ void readSettings() {
 		defaultDisabledPresetScales = std::bitset<NUM_PRESET_SCALES>(0);
 	}
 	else {
-		defaultDisabledPresetScales = std::bitset<NUM_PRESET_SCALES>((buffer[173] << 8) | buffer[172]);
+		// Use 3 bytes to support up to 24 scales (buffer[190] is the high byte)
+		unsigned long disabledBits = (buffer[190] << 16) | (buffer[173] << 8) | buffer[172];
+		defaultDisabledPresetScales = std::bitset<NUM_PRESET_SCALES>(disabledBits);
 	}
 
 	if (buffer[174] != 0 && buffer[174] != 1) {
@@ -1085,6 +1088,7 @@ void writeSettings() {
 	unsigned long disabledBits = defaultDisabledPresetScales.to_ulong();
 	buffer[172] = 0xff & disabledBits;
 	buffer[173] = 0xff & (disabledBits >> 8);
+	buffer[190] = 0xff & (disabledBits >> 16); // Third byte for scales 17-24
 
 	buffer[174] = accessibilityShortcuts;
 	buffer[175] = util::to_underlying(accessibilityMenuHighlighting);

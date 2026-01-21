@@ -17,6 +17,7 @@
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "definitions_cxx.hpp"
 #include "extern.h"
+#include "gui/context_menu/scale_selection.h"
 #include "gui/menu_item/multi_range.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/sound_editor.h"
@@ -425,7 +426,17 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 		bool inScaleMode = getCurrentInstrumentClip()->inScaleMode;
 
 		if (on) {
-			if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED) {
+			if (Buttons::isShiftButtonPressed()) { // open scale selection context menu
+				if (!inScaleMode) {
+					enterScaleMode();
+					display->cancelPopup();
+				}
+				if (context_menu::scaleSelection.setupAndCheckAvailability()) {
+					openUI(&context_menu::scaleSelection);
+					return ActionResult::DEALT_WITH;
+				}
+			}
+			else if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED) {
 				currentUIMode = UI_MODE_SCALE_MODE_BUTTON_PRESSED;
 				toggleScaleModeOnButtonRelease = true;
 				scaleButtonPressTime = AudioEngine::audioSampleTimer;

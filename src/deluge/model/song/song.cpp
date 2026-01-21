@@ -2875,7 +2875,7 @@ Scale Song::cycleThroughScales(int32_t offset) {
 	// Try next scale until one works, or we've tried all.
 	// NUM_PRESET_SCALES stands for the user scale.
 	do {
-		newScale = static_cast<Scale>(mod(newScale + offset, NUM_PRESET_SCALES + offset));
+		newScale = static_cast<Scale>(mod(newScale + offset, NUM_PRESET_SCALES + 1));
 		if (newScale == USER_SCALE || !disabledPresetScales[newScale]) {
 			currentScale = setScale(newScale);
 		}
